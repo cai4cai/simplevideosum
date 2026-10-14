@@ -47,6 +47,6 @@ def test_missing_file(tmp_path):
 
 
 def test_frames_feed_feature_extractor(reader):
-    frames = reader.sample(4).float() / 255
-    feats = extract_features(build_feature_extractor(), frames)
-    assert feats.shape == (4, 512)
+    model = build_feature_extractor(pretrained=False, device="cpu")
+    feats = extract_features(model, reader.sample(4))
+    assert feats.shape == (4, 2048)

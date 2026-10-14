@@ -1,18 +1,21 @@
-"""Key frame selection algorithms.
+"""Key frame selection: which frame representation to use, and how to cluster the frames.
 
-Each algorithm maps the number of (sampled) frames of a video and the number of requested
-key frames to ``(indices, labels)``: the key frame indices, and for every frame the position
-in ``indices`` of the key frame it is represented by.
+Every selection returns ``(indices, labels)``: the key frame indices, and for every frame the
+position in ``indices`` of the key frame that represents it.
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 
-SelectFn = Callable[[int, int], tuple[np.ndarray, np.ndarray]]
+from simplevideosum.kmedoids import kmedoids
+from simplevideosum.segmentation import dissect, is_power_of_two
+
+Selection = tuple[np.ndarray, np.ndarray]
 
 
-def select_time(num_frames: int, n_key_frames: int) -> tuple[np.ndarray, np.ndarray]:
+def select_time(num_frames: int, n_key_frames: int) -> Selection:
     """Pick key frames evenly spaced in time; each frame is labelled by its nearest key frame."""
     if num_frames < 1 or n_key_frames < 1:
         raise ValueError("num_frames and n_key_frames must be >= 1")
@@ -21,12 +24,91 @@ def select_time(num_frames: int, n_key_frames: int) -> tuple[np.ndarray, np.ndar
     return indices, distances.argmin(axis=1)
 
 
-# Algorithms available from the command line.
-ALGORITHMS: dict[str, SelectFn] = {"time": select_time}
+def select_segments(signatures: np.ndarray, n_key_frames: int, time_smoothing: float = 0.0):
+    """Cut the video into temporally contiguous segments of similar signatures.
 
-# Algorithms that inspect every frame and therefore honour the sampling frequency (--fps).
-# The others select key frames from the video length alone and ignore it.
-FPS_ALGORITHMS: frozenset[str] = frozenset()
+    The key frame of each segment is the one whose signature is closest to the segment mean.
+    """
+    signatures = np.asarray(signatures, dtype=np.float32)
+    bounds = dissect(signatures, n_key_frames)
+    labels = np.repeat(np.arange(n_key_frames), np.diff(bounds))
+    indices = np.empty(n_key_frames, dtype=int)
+    for k, (start, end) in enumerate(zip(bounds[:-1], bounds[1:], strict=True)):
+        segment = signatures[start:end]
+        indices[k] = start + np.argmin(((segment - segment.mean(axis=0)) ** 2).sum(axis=1))
+    return indices, labels
+
+
+def select_kmedoids(signatures: np.ndarray, n_key_frames: int, time_smoothing: float = 0.0):
+    """Cluster the signatures with k-medoids; the key frames are the medoids."""
+    return kmedoids(signatures, n_key_frames, time_smoothing)
+
+
+def require_power_of_two(n_key_frames: int) -> None:
+    if not is_power_of_two(n_key_frames):
+        raise ValueError(f"this clustering needs a power of 2 number of frames, got {n_key_frames}")
+
+
+@dataclass(frozen=True)
+class Algorithm:
+    """How frames are represented. Algorithms with signatures inspect the video resampled at
+    ``--fps`` and cluster the signatures; the others select from the video length alone
+    (``select``) and ignore ``--fps`` and the clustering."""
+
+    uses_signatures: bool
+    select: Callable[[int, int], Selection] | None = None
+
+
+@dataclass(frozen=True)
+class Clustering:
+    """How the signatures are grouped into key frames: ``select(signatures, n, time_smoothing)``."""
+
+    select: Callable[..., Selection]
+    validate: Callable[[int], None] = lambda n_key_frames: None
+    supports_time_smoothing: bool = False
+
+
+# Algorithms available from the command line (-a).
+ALGORITHMS: dict[str, Algorithm] = {
+    "time": Algorithm(uses_signatures=False, select=select_time),
+    "inception": Algorithm(uses_signatures=True),
+}
+
+# Clustering methods for the algorithms with signatures (-c).
+CLUSTERINGS: dict[str, Clustering] = {
+    "kmedoids": Clustering(select_kmedoids, supports_time_smoothing=True),
+    "dissection": Clustering(select_segments, validate=require_power_of_two),
+}
+DEFAULT_CLUSTERING = "kmedoids"
 
 # Algorithms of the original videosum package that are not implemented here yet.
 PLANNED_ALGORITHMS = ("frechet",)
+
+
+def resolve(
+    algo: str, clustering: str | None, n_key_frames: int, time_smoothing: float = 0.0
+) -> tuple[Algorithm, Clustering | None]:
+    """Look up and validate an algorithm/clustering combination (raises ValueError).
+
+    Returns the clustering as None for algorithms without signatures, which ignore it.
+    """
+    if algo in PLANNED_ALGORITHMS:
+        raise ValueError(
+            f"algorithm '{algo}' is not implemented yet (available: {', '.join(ALGORITHMS)})"
+        )
+    if algo not in ALGORITHMS:
+        raise ValueError(f"unknown algorithm '{algo}' (available: {', '.join(ALGORITHMS)})")
+    if clustering is not None and clustering not in CLUSTERINGS:
+        raise ValueError(f"unknown clustering '{clustering}' (available: {', '.join(CLUSTERINGS)})")
+    if not 0.0 <= time_smoothing <= 1.0:
+        raise ValueError("time smoothing must be in [0, 1]")
+    algorithm = ALGORITHMS[algo]
+    if not algorithm.uses_signatures:
+        if time_smoothing > 0:
+            raise ValueError(f"the '{algo}' algorithm cannot use time smoothing")
+        return algorithm, None
+    method = CLUSTERINGS[clustering or DEFAULT_CLUSTERING]
+    if time_smoothing > 0 and not method.supports_time_smoothing:
+        raise ValueError(f"the '{clustering}' clustering cannot use time smoothing")
+    method.validate(n_key_frames)
+    return algorithm, method

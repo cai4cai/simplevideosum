@@ -15,7 +15,8 @@ def test_help_documents_every_option(capsys):
     assert exc.value.code == 0
     out = capsys.readouterr().out
     for option in ("--input", "--output", "--nframes", "--width", "--height", "--algo",
-                   "--time-segmentation", "--fps", "--log", "example:"):  # fmt: skip
+                   "--time-segmentation", "--clustering", "--time-smoothing", "--fps", "--log",
+                   "example:"):  # fmt: skip
         assert option in out
 
 
@@ -39,21 +40,34 @@ def test_log_file_is_written(video_path, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "mutate, message",
+    "algo, nframes, extra, message",
     [
-        (lambda a, p: a.__setitem__(a.index("time"), "frechet"), "not implemented"),
-        (lambda a, p: a.__setitem__(a.index("time"), "bogus"), "unknown algorithm"),
-        (lambda a, p: a.__setitem__(1, "missing.mp4"), "does not exist"),
-        (lambda a, p: a.__setitem__(a.index("-n") + 1, "0"), "--nframes"),
+        ("frechet", "16", [], "not implemented"),
+        ("bogus", "16", [], "unknown algorithm"),
+        ("time", "0", [], "--nframes"),
+        ("time", "16", ["-s", "0.5"], "cannot use time smoothing"),
+        ("inception", "16", ["-c", "bogus"], "unknown clustering"),
+        ("inception", "12", ["-c", "dissection"], "power of 2"),
+        ("inception", "16", ["-c", "dissection", "-s", "0.5"], "cannot use time smoothing"),
+        ("inception", "16", ["-s", "1.5"], "time smoothing must be in"),
     ],
 )
-def test_invalid_arguments_exit_with_usage_error(video_path, tmp_path, capsys, mutate, message):
-    argv = args(video_path, tmp_path / "story.jpg")
-    mutate(argv, tmp_path)
+def test_invalid_arguments_exit_with_usage_error(
+    video_path, tmp_path, capsys, algo, nframes, extra, message
+):
+    argv = ["-i", str(video_path), "-o", str(tmp_path / "story.jpg"), "-n", nframes,
+            "-x", "640", "-y", "360", "-a", algo, *extra]  # fmt: skip
     with pytest.raises(SystemExit) as exc:
         main(argv)
     assert exc.value.code == 2
     assert message in capsys.readouterr().err
+
+
+def test_missing_input_exits_with_usage_error(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(args(tmp_path / "missing.mp4", tmp_path / "story.jpg"))
+    assert exc.value.code == 2
+    assert "does not exist" in capsys.readouterr().err
 
 
 def test_existing_output_is_refused(video_path, tmp_path, capsys):

@@ -13,7 +13,7 @@ from pathlib import Path
 import torch
 from torchcodec.encoders import JpegEncoder, PngEncoder
 
-from simplevideosum.algorithms import ALGORITHMS, PLANNED_ALGORITHMS
+from simplevideosum.algorithms import DEFAULT_CLUSTERING, PLANNED_ALGORITHMS, resolve
 from simplevideosum.summarizer import VideoSummarizer
 
 EXAMPLE = "simplevideosum -i video.mp4 -o storyboard.jpg -n 16 -x 1920 -y 1080 -a time -t 1"
@@ -24,16 +24,22 @@ HELP = {
     "-n": "Number of frames in the collage.",
     "-x": "Width of the collage in pixels.",
     "-y": "Height of the collage in pixels (the time segmentation bar is added below it).",
-    "-a": "Algorithm for frame selection. Available: "
-    + ", ".join(ALGORITHMS)
-    + ". Not implemented yet: "
+    "-a": "Algorithm for frame selection, i.e. how frames are represented. Available: time "
+    "(evenly spaced frames, no feature extraction), inception (pre-trained InceptionV3 "
+    "signatures, clustered with the method chosen by -c). Not implemented yet: "
     + ", ".join(PLANNED_ALGORITHMS)
     + ".",
+    "-c": "Clustering method for the signatures of the inception algorithm (ignored by time). "
+    "Available: kmedoids (k-medoids with PAM, as in videosum), dissection (temporally contiguous "
+    "segments by recursive bisection; the number of frames must be a power of 2). "
+    f"Default: {DEFAULT_CLUSTERING}.",
+    "-s": "Time smoothing in [0, 1]: blends the signature distances with the temporal distance "
+    "between frames, 1 gives evenly spaced contiguous clusters. Only for kmedoids. Default: 0.",
     "-t": "Add a colour bar below the collage showing which key frame represents each "
     "moment of the video (1 to enable, 0 to disable; a bare -t enables it). Default: 0.",
     "-f": "Sampling frequency in frames per second. Key frames are selected among the video "
-    "resampled at this rate. Ignored by the time algorithm, which only needs the video "
-    "length. Default: use every frame of the video.",
+    "resampled at this rate (inception computes a signature for each of them). Ignored by the "
+    "time algorithm, which only needs the video length. Default: use every frame of the video.",
     "-l": "Path of a log file to append to. Default: log to the terminal only.",
 }
 
@@ -59,6 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
     optional.add_argument(
         "-t", "--time-segmentation", nargs="?", const=1, default=0, type=int, help=HELP["-t"]
     )
+    optional.add_argument("-c", "--clustering", default=None, type=str, help=HELP["-c"])
+    optional.add_argument("-s", "--time-smoothing", default=0.0, type=float, help=HELP["-s"])
     optional.add_argument("-f", "--fps", default=None, type=float, help=HELP["-f"])
     optional.add_argument("-l", "--log", default=None, type=Path, help=HELP["-l"])
     return parser
@@ -77,12 +85,10 @@ def validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
             parser.error(f"--{name} must be >= 1")
     if args.fps is not None and args.fps <= 0:
         parser.error("--fps must be > 0")
-    if args.algo in PLANNED_ALGORITHMS:
-        parser.error(
-            f"algorithm '{args.algo}' is not implemented yet (available: {', '.join(ALGORITHMS)})"
-        )
-    if args.algo not in ALGORITHMS:
-        parser.error(f"unknown algorithm '{args.algo}' (available: {', '.join(ALGORITHMS)})")
+    try:
+        resolve(args.algo, args.clustering, args.nframes, args.time_smoothing)
+    except ValueError as error:
+        parser.error(str(error))
 
 
 def save_image(image: torch.Tensor, path: Path) -> None:
@@ -113,9 +119,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.height,
         fps=args.fps,
         time_segmentation=bool(args.time_segmentation),
+        clustering=args.clustering,
+        time_smoothing=args.time_smoothing,
     )
     tic = time.time()
-    storyboard = summarizer.summarize(args.input)
+    try:
+        storyboard = summarizer.summarize(args.input)
+    except ValueError as error:  # e.g. fewer sampled frames than requested segments
+        parser.error(str(error))
     save_image(storyboard, args.output)
     height, width = storyboard.shape[1:]
     logging.info("Video summarized in %.2f seconds.", time.time() - tic)

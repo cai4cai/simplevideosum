@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from simplevideosum.features import (
+    FEATURE_MAP_SIZE,
     SIGNATURE_DIM,
     build_feature_extractor,
     compute_signatures,
@@ -41,3 +42,43 @@ def test_compute_signatures_batches_consistently(model, video_path):
     assert torch.allclose(batched, single, atol=1e-4)
     with pytest.raises(ValueError):
         compute_signatures(reader, indices, model, batch_size=0)
+    with pytest.raises(ValueError, match="empty"):
+        compute_signatures(reader, [], model)
+
+
+def test_scda_signatures_concatenate_the_normalised_pooled_descriptors():
+    scda_model = build_feature_extractor(
+        pretrained=False, device="cpu", aggregation="scda", normalisation="l2"
+    )
+    frames = torch.randint(0, 255, (3, 3, 64, 64), dtype=torch.uint8)
+    feats = extract_features(scda_model, frames)
+    assert feats.shape == (3, 2 * SIGNATURE_DIM)
+    assert torch.allclose(feats[:, :SIGNATURE_DIM].norm(dim=1), torch.ones(3), atol=1e-4)
+    assert torch.allclose(feats[:, SIGNATURE_DIM:].norm(dim=1), torch.ones(3), atol=1e-4)
+
+
+def test_default_signature_is_the_global_average_of_the_maps(model):
+    frames = torch.randint(0, 255, (2, 3, 64, 64), dtype=torch.uint8)
+    maps = model[0](preprocess(frames))
+    assert maps.shape == (2, SIGNATURE_DIM, FEATURE_MAP_SIZE, FEATURE_MAP_SIZE)
+    assert torch.allclose(extract_features(model, frames), maps.mean(dim=(2, 3)), atol=1e-5)
+
+
+@pytest.mark.parametrize("kind", ["backbone", "aggregation", "normalisation"])
+def test_unknown_component(kind):
+    with pytest.raises(ValueError, match=f"unknown {kind}"):
+        build_feature_extractor(pretrained=False, device="cpu", **{kind: "bogus"})
+
+
+def test_scda_aggregation_variants():
+    from simplevideosum.aggregation import AGGREGATIONS
+
+    options = {
+        name: (AGGREGATIONS[name]().largest_component, AGGREGATIONS[name]().fill_holes)
+        for name in ("scda", "scda_thresh", "scda_fill")
+    }
+    assert options == {
+        "scda": (True, False),  # the paper
+        "scda_thresh": (False, False),  # no morphology
+        "scda_fill": (True, True),  # videosum
+    }

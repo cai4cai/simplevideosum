@@ -2,18 +2,17 @@
 
 from dataclasses import dataclass
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 
 # ColorBrewer "Set3" qualitative palette, one colour per key frame (cycled if needed).
-SET3 = np.array(
+SET3 = torch.tensor(
     [
         (141, 211, 199), (255, 255, 179), (190, 186, 218), (251, 128, 114),
         (128, 177, 211), (253, 180, 98), (179, 222, 105), (252, 205, 229),
         (217, 217, 217), (188, 128, 189), (204, 235, 197), (255, 237, 111),
     ],
-    dtype=np.uint8,
+    dtype=torch.uint8,
 )  # fmt: skip
 
 
@@ -69,15 +68,19 @@ def make_collage(frames: torch.Tensor, layout: Layout) -> torch.Tensor:
 
 
 def make_segbar(
-    labels: np.ndarray, indices: np.ndarray, width: int, height: int = 32
+    labels: torch.Tensor, indices: torch.Tensor, width: int, height: int = 32
 ) -> torch.Tensor:
     """Colour bar showing which key frame represents each moment of the video.
 
-    Returns a (3, height, width) uint8 tensor; key frame positions are marked in black.
+    ``labels`` gives for every frame the position in ``indices`` of the key frame that
+    represents it. Returns a (3, height, width) uint8 CPU tensor, like the collage it goes under;
+    key frame positions are marked in black.
     """
+    labels = torch.as_tensor(labels).cpu()
+    indices = torch.as_tensor(indices).cpu()
     n = len(labels)
-    columns = np.arange(width)
-    frame_of_column = np.clip(np.round(columns * n / width).astype(int), 0, n - 1)
+    columns = torch.arange(width, dtype=torch.float64)
+    frame_of_column = (columns * n / width).round().long().clamp(0, n - 1)
     bar = SET3[labels[frame_of_column] % len(SET3)]  # (width, 3)
-    bar[np.clip(np.round(indices * width / n).astype(int), 0, width - 1)] = 0
-    return torch.from_numpy(bar).T[:, None, :].expand(3, height, width).contiguous()
+    bar[(indices.double() * width / n).round().long().clamp(0, width - 1)] = 0
+    return bar.T[:, None, :].expand(3, height, width).contiguous()

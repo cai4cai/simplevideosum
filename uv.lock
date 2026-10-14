@@ -786,19 +786,19 @@ wheels = [
 name = "simplevideosum"
 version = "0.1.0"
 source = { editable = "." }
-dependencies = [
-    { name = "torchcodec" },
-]
 
 [package.optional-dependencies]
 cpu = [
     { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and extra == 'extra-14-simplevideosum-cpu') or (extra == 'extra-14-simplevideosum-cpu' and extra == 'extra-14-simplevideosum-cuda')" },
     { name = "torch", version = "2.14.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-simplevideosum-cpu') or (extra == 'extra-14-simplevideosum-cpu' and extra == 'extra-14-simplevideosum-cuda')" },
+    { name = "torchcodec", version = "0.17.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and extra == 'extra-14-simplevideosum-cpu') or (extra == 'extra-14-simplevideosum-cpu' and extra == 'extra-14-simplevideosum-cuda')" },
+    { name = "torchcodec", version = "0.17.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-simplevideosum-cpu') or (extra == 'extra-14-simplevideosum-cpu' and extra == 'extra-14-simplevideosum-cuda')" },
     { name = "torchvision", version = "0.29.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and extra == 'extra-14-simplevideosum-cpu') or (extra == 'extra-14-simplevideosum-cpu' and extra == 'extra-14-simplevideosum-cuda')" },
     { name = "torchvision", version = "0.29.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-simplevideosum-cpu') or (extra == 'extra-14-simplevideosum-cpu' and extra == 'extra-14-simplevideosum-cuda')" },
 ]
 cuda = [
     { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "torchcodec", version = "0.17.0", source = { registry = "https://pypi.org/simple" } },
     { name = "torchvision", version = "0.29.1", source = { registry = "https://pypi.org/simple" } },
 ]
 
@@ -814,7 +814,9 @@ requires-dist = [
     { name = "torch", marker = "sys_platform == 'linux' and extra == 'cpu'", specifier = ">=2.14.1", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "simplevideosum", extra = "cpu" } },
     { name = "torch", marker = "sys_platform != 'linux' and extra == 'cpu'", specifier = ">=2.14.1" },
     { name = "torch", marker = "extra == 'cuda'", specifier = ">=2.14.1" },
-    { name = "torchcodec", specifier = ">=0.17.0" },
+    { name = "torchcodec", marker = "sys_platform == 'linux' and extra == 'cpu'", specifier = ">=0.17.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "simplevideosum", extra = "cpu" } },
+    { name = "torchcodec", marker = "sys_platform != 'linux' and extra == 'cpu'", specifier = ">=0.17.0" },
+    { name = "torchcodec", marker = "extra == 'cuda'", specifier = ">=0.17.0" },
     { name = "torchvision", marker = "sys_platform == 'linux' and extra == 'cpu'", specifier = ">=0.29.1", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "simplevideosum", extra = "cpu" } },
     { name = "torchvision", marker = "sys_platform != 'linux' and extra == 'cpu'", specifier = ">=0.29.1" },
     { name = "torchvision", marker = "extra == 'cuda'", specifier = ">=0.29.1" },
@@ -931,6 +933,11 @@ wheels = [
 name = "torchcodec"
 version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "extra != 'extra-14-simplevideosum-cpu' and extra == 'extra-14-simplevideosum-cuda'",
+    "sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'extra-14-simplevideosum-cpu' and extra != 'extra-14-simplevideosum-cuda'",
+    "sys_platform == 'darwin' and extra == 'extra-14-simplevideosum-cpu' and extra != 'extra-14-simplevideosum-cuda'",
+]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/53/33acd60b2880ed4b0d6526436f691a0f447de7b53aceb42eb58a9719e474/torchcodec-0.17.0-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:3d69d30fbd2d5f9cc6d63c6d970acb5fa3aeddb5524a059f0ca538a83972f65c", size = 4219893, upload-time = "2026-09-30T12:52:54.86Z" },
     { url = "https://files.pythonhosted.org/packages/75/20/5692a1177b4be33086770970dcf83effa821376f447899cea3ba850ea2fa/torchcodec-0.17.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:81655cf25e168e74f27aee29db9fc16e37a9f5b2a188a0f7fe25cdfaab2ddd2e", size = 8854331, upload-time = "2026-09-30T12:52:56.445Z" },
@@ -947,6 +954,31 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a1/38/e27754be64b351b99d16e146c27fe1c8ef0abdd92186d33282afbf81801e/torchcodec-0.17.0-cp314-cp314t-macosx_14_0_arm64.whl", hash = "sha256:7c6004dbeb27a9e58bad0b3d10b4d7f7cda4407c0f10ba45a5a2ebd60aa33dbe", size = 4223965, upload-time = "2026-09-30T12:53:17.46Z" },
     { url = "https://files.pythonhosted.org/packages/3f/6e/838b73f42dcc8d892bba0b6f278f3ea7db577bce28b30b7306ae02224043/torchcodec-0.17.0-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8806e967d598d0d8ff0214837d9fb7565f06c7676f56ec172d5c57574e59d5b8", size = 8858951, upload-time = "2026-09-30T12:53:19.286Z" },
     { url = "https://files.pythonhosted.org/packages/a8/6a/3e1cad0310001fb50a222406f16c983c7bf1dbdbae73ae26c63288ddc308/torchcodec-0.17.0-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7d58e5211ed6f04aca2bd57e6a6104f9993ceb36a290db31de3f4e6096148f0b", size = 9975758, upload-time = "2026-09-30T12:53:21.471Z" },
+]
+
+[[package]]
+name = "torchcodec"
+version = "0.17.0+cpu"
+source = { registry = "https://download.pytorch.org/whl/cpu" }
+resolution-markers = [
+    "sys_platform == 'linux'",
+]
+wheels = [
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:187383c26847db470a22a9aa8b15e45611dda594f3fdc1a6a32b670f1d7ddd82", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:de8e58e5f30692ee7cf92b1b313d0ffdeaac95148525ef2a865067fca0255246", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp312-cp312-win_amd64.whl", hash = "sha256:3b03a3ba2b843ba4df6fc87c559442e62252f0da9b88c48041029327479912bc", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1626d5af9c6ebbbba23b2935901e8dabb24573a0ae68fca789d8b4d6c173c0bb", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ad67143ecdc26d6437e16eeec3ab1a560c6cc0390b2460b1d990b3cda93ccc57", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp313-cp313-win_amd64.whl", hash = "sha256:b10013fb700da56d4cb073e096586f3392c1ca8d62f2cd783ccf464efa8c2b77", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8e1a4ec1b5218f6f23ad5b51dc3faf54a9ec56336c1f9116230b5202002e358b", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f4974d75c339e71f6c57af96cc25379307e7d9f1422894acedcb39a2a9e67e6a", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp314-cp314-win_amd64.whl", hash = "sha256:b4a33af2d0e049ef7872e06ea65305bbdb0e1fba15ba760cffdd06ac2de20955", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:453a2b8c3f558394c64d374aea883da88be017ac9ca5f53a0cae358b5531ecf2", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6fbf462c74dfa04d775f488b42280240e5d6594691b2ed10234825728018fc01", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp315-cp315-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:aaf9ecf852894f2203fc2199f21fb7dbddda372960abedee488c01e8043229c9", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp315-cp315-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:3025e8f4b07df9858d094bd334b7cd555f7d4179815603ed176ff8e6cf9611b2", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp315-cp315t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f34103030e325f6b1a153143d90de2a485f4dbb4bdb985a2fb85c954da8395fa", upload-time = "2026-09-30T16:55:36Z" },
+    { url = "https://download.pytorch.org/whl/cpu/torchcodec-0.17.0%2Bcpu-cp315-cp315t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:42245e3da6aa7b86d6db7387f21949a3ba8dca42b490510e043b964461d4a50d", upload-time = "2026-09-30T16:55:36Z" },
 ]
 
 [[package]]

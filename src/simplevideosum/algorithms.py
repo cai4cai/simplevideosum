@@ -13,9 +13,11 @@ from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
 from simplevideosum.distances import DISTANCES
 from simplevideosum.features import BACKBONES
 from simplevideosum.kmedoids import MAX_FRAMES, kmedoids
-from simplevideosum.segmentation import dissect, is_power_of_two
+from simplevideosum.segmentation import dissect, fisher_segments, is_power_of_two
 
 Selection = tuple[torch.Tensor, torch.Tensor]
+
+MAX_FISHER_FRAMES = 10_000  # its N x N cost matrix is 400 MB in float32
 
 
 def select_time(num_frames: int, n_key_frames: int) -> Selection:
@@ -28,17 +30,10 @@ def select_time(num_frames: int, n_key_frames: int) -> Selection:
     return indices, distances.argmin(dim=1)
 
 
-def select_segments(
-    signatures: torch.Tensor, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
-) -> Selection:
-    """Cut the video into temporally contiguous segments of similar signatures.
-
-    The key frame of each segment is the one whose signature is closest to the segment mean.
-    The cost of a segment is its within-segment squared L2 distance, whatever ``distance`` says
-    (the clustering is only offered with ``l2sq``). The result is on the signatures' device.
-    """
-    signatures = torch.as_tensor(signatures, dtype=torch.float32)
-    bounds = dissect(signatures, n_key_frames)
+def key_frames_of_segments(signatures: torch.Tensor, bounds: torch.Tensor) -> Selection:
+    """The key frame of each segment ``[bounds[k], bounds[k + 1])`` is the one whose signature is
+    closest to the segment mean. The result is on the signatures' device."""
+    n_key_frames = len(bounds) - 1
     labels = torch.arange(n_key_frames, device=signatures.device).repeat_interleave(bounds.diff())
     indices = torch.empty(n_key_frames, dtype=torch.long, device=signatures.device)
     edges = bounds.tolist()
@@ -46,6 +41,27 @@ def select_segments(
         segment = signatures[start:end]
         indices[k] = start + ((segment - segment.mean(dim=0)) ** 2).sum(dim=1).argmin()
     return indices, labels
+
+
+def select_segments(
+    signatures: torch.Tensor, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
+) -> Selection:
+    """Cut the video into temporally contiguous segments by recursive bisection.
+
+    The cost of a segment is its within-segment squared L2 distance, whatever ``distance`` says
+    (the clustering is only offered with ``l2sq``).
+    """
+    signatures = torch.as_tensor(signatures, dtype=torch.float32)
+    return key_frames_of_segments(signatures, dissect(signatures, n_key_frames))
+
+
+def select_optimal_segments(
+    signatures: torch.Tensor, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
+) -> Selection:
+    """Cut the video into the temporally contiguous segments of least total cost (Fisher's
+    exact segmentation); the cost is the same as for ``select_segments``."""
+    signatures = torch.as_tensor(signatures, dtype=torch.float32)
+    return key_frames_of_segments(signatures, fisher_segments(signatures, n_key_frames))
 
 
 def select_kmedoids(
@@ -76,6 +92,9 @@ class Clustering:
 CLUSTERINGS: dict[str, Clustering] = {
     "kmedoids": Clustering(select_kmedoids, supports_time_smoothing=True, max_frames=MAX_FRAMES),
     "dissection": Clustering(select_segments, validate=require_power_of_two, distances=("l2sq",)),
+    "fisher": Clustering(
+        select_optimal_segments, distances=("l2sq",), max_frames=MAX_FISHER_FRAMES
+    ),
 }
 DEFAULT_CLUSTERING = "kmedoids"
 

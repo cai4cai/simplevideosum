@@ -20,7 +20,8 @@ Frame selection is made of explicit components, like in the original package but
    concatenated into the frame signature: `none` or `l2`.
 4. **distance** (`--distance`): between signatures: `l2sq` (squared L2) or `cosine`.
 5. **clustering** (`-c/--clustering`): how signatures are grouped into key frames: `kmedoids`
-   (default, as in videosum) or `dissection` (temporally contiguous segments, `l2sq` only).
+   (default, as in videosum), `dissection` (temporally contiguous segments by greedy bisection) or
+   `fisher` (temporally contiguous segments of least total cost); both `l2sq` only.
 
 `-a/--algo` is an alias for a configuration of these components; any component flag overrides
 the one of the algorithm:
@@ -76,9 +77,9 @@ time segmentation bar. `python -m simplevideosum.run` is equivalent. Run
 | `-y`, `--height` | Height of the collage in pixels (the time segmentation bar is added below it). |
 | `-a`, `--algo` | Alias for a configuration of the components (table above): `time`, `videosum_inception` or `videosum_scda`. |
 | `--backbone`, `--aggregation`, `--normalisation`, `--distance` | Override the corresponding component of the algorithm. |
-| `-c`, `--clustering` | Clustering of the signatures: `kmedoids` or `dissection` (needs a power of 2 for `-n` and the `l2sq` distance). Overrides the algorithm's. |
+| `-c`, `--clustering` | Clustering of the signatures: `kmedoids`, `dissection` (needs a power of 2 for `-n` and the `l2sq` distance) or `fisher` (`l2sq` distance, at most 10,000 sampled frames). Overrides the algorithm's. |
 | `-s`, `--time-smoothing` | In [0, 1]: blends the signature distances with the temporal distance between frames, 1 gives contiguous clusters. `kmedoids` only. Default: 0. |
-| `-t`, `--time-segmentation` | Add the colour bar under the collage (`1` enables, `0` disables, bare `-t` enables). |
+| `-t`, `--time-segmentation` | Add the colour bar under the collage and a border of the same colour around each key frame (`1` enables, `0` disables, bare `-t` enables). |
 | `-f`, `--fps` | Sampling frequency in fps: key frames are chosen among the video resampled at this rate. the algorithms with signatures compute a signature for each resampled frame; `time` only needs the video length and ignores it. Default: every frame. |
 | `-l`, `--log` | Log file to append to. Default: terminal only. |
 
@@ -108,6 +109,13 @@ The input must be a single video file for now.
     segment is cut where the summed cost of the two halves is smallest, until `n` segments are
     obtained, which is why `n` must be a power of 2. The key frame of a segment is the frame whose
     signature is closest to the segment mean.
+
+  - **`fisher`**: the same segment cost, but the `n` contiguous segments of least total cost are
+    found exactly with Fisher's 1-D segmentation (dynamic programming over the cut points,
+    `F[j][e] = min_s F[j-1][s] + cost(s, e)`). Segments have any length, so a long static shot gets
+    one segment and a busy moment several, and `n` can be any number. It evaluates an (N + 1) x
+    (N + 1) cost matrix on the device (400 MB for 10,000 frames, the limit) in n x N^2 operations,
+    so lower `-f` for long videos. The key frame is chosen as for `dissection`.
 
   The greedy bisection can only produce balanced hierarchies, so on the demo video it spends half
   of the segments on the first 17 seconds. It is kept as an experiment, `kmedoids` is the baseline.

@@ -45,8 +45,24 @@ class Layout:
         return self.tiles_per_row * self.tiles_per_col
 
 
-def make_collage(frames: torch.Tensor, layout: Layout) -> torch.Tensor:
-    """Tile (N, 3, H, W) uint8 frames row by row into a (3, h, w) uint8 collage."""
+def border_width(layout: Layout) -> int:
+    """Thickness in pixels of the coloured border of a tile: thin, but always visible."""
+    return max(2, layout.tile_height // 90)
+
+
+def label_colours(labels: torch.Tensor) -> torch.Tensor:
+    """The (N, 3) uint8 colours of the labels, cycling through the palette."""
+    return SET3[torch.as_tensor(labels).cpu() % len(SET3)]
+
+
+def make_collage(
+    frames: torch.Tensor, layout: Layout, colours: torch.Tensor | None = None
+) -> torch.Tensor:
+    """Tile (N, 3, H, W) uint8 frames row by row into a (3, h, w) uint8 collage.
+
+    With ``colours`` (N, 3), each tile gets a border of its colour, drawn over the edge of the
+    tile so that the layout does not change.
+    """
     if frames.shape[0] > layout.capacity:
         raise ValueError("more frames than tiles in the layout")
     collage = torch.zeros(
@@ -64,6 +80,14 @@ def make_collage(frames: torch.Tensor, layout: Layout) -> torch.Tensor:
         row, col = divmod(k, layout.tiles_per_row)
         y, x = row * layout.tile_height, col * layout.tile_width
         collage[:, y : y + layout.tile_height, x : x + layout.tile_width] = tile
+        if colours is not None:
+            collage_tile = collage[:, y : y + layout.tile_height, x : x + layout.tile_width]
+            b = border_width(layout)
+            colour = colours[k].reshape(3, 1, 1)
+            collage_tile[:, :b, :] = colour
+            collage_tile[:, -b:, :] = colour
+            collage_tile[:, :, :b] = colour
+            collage_tile[:, :, -b:] = colour
     return collage
 
 
@@ -81,6 +105,6 @@ def make_segbar(
     n = len(labels)
     columns = torch.arange(width, dtype=torch.float64)
     frame_of_column = (columns * n / width).round().long().clamp(0, n - 1)
-    bar = SET3[labels[frame_of_column] % len(SET3)]  # (width, 3)
+    bar = label_colours(labels[frame_of_column])  # (width, 3)
     bar[(indices.double() * width / n).round().long().clamp(0, width - 1)] = 0
     return bar.T[:, None, :].expand(3, height, width).contiguous()

@@ -4,9 +4,10 @@ import pytest
 import torch
 
 from simplevideosum.algorithms import CLUSTERINGS
+from simplevideosum.collage import SET3
 from simplevideosum.features import build_feature_extractor
 from simplevideosum.io import VideoReader
-from simplevideosum.summarizer import VideoSummarizer
+from simplevideosum.summarizer import VideoSummarizer, chronological
 
 
 def test_storyboard_with_time_segmentation(video_path):
@@ -55,7 +56,7 @@ def random_extractor():
     return build_feature_extractor(pretrained=False, device="cpu")
 
 
-@pytest.mark.parametrize("clustering", ["kmedoids", "dissection"])
+@pytest.mark.parametrize("clustering", ["kmedoids", "dissection", "fisher"])
 def test_inception_algorithm_uses_fps_and_decodes_candidates_once(
     video_path, random_extractor, monkeypatch, clustering
 ):
@@ -164,3 +165,37 @@ def test_short_summary_warns_through_logging(video_path, random_extractor, caplo
                                  feature_extractor=random_extractor)  # fmt: skip
     summarizer.summarize(video_path)
     assert "requested frames available" in caplog.text
+
+
+def test_chronological_sorts_key_frames_and_keeps_labels_consistent():
+    indices = torch.tensor([7, 2, 5])
+    labels = torch.tensor([1, 1, 1, 2, 2, 2, 0, 0, 0, 0])  # frame i belongs to indices[labels[i]]
+    sorted_indices, new_labels = chronological(indices, labels)
+    assert sorted_indices.tolist() == [2, 5, 7]
+    assert [int(sorted_indices[k]) for k in new_labels] == [int(indices[k]) for k in labels]
+
+
+def test_kmedoids_storyboard_is_chronological_with_matching_borders(
+    video_path, random_extractor, monkeypatch
+):
+    seen = []
+    original = VideoReader.read
+
+    def spy(self, indices):
+        seen.append(list(indices))
+        return original(self, indices)
+
+    monkeypatch.setattr(VideoReader, "read", spy)
+    summarizer = VideoSummarizer(
+        "videosum_inception", 6, 640, 360, fps=2, time_segmentation=True,
+        feature_extractor=random_extractor,
+    )  # fmt: skip
+    storyboard = summarizer.summarize(video_path)
+    assert seen[-1] == sorted(seen[-1])  # the key frames are read, and shown, in time order
+    layout = summarizer.layout
+    bar = storyboard[:, -summarizer.segbar_height, :]  # colours of the segmentation bar
+    for k in range(6):
+        row, col = divmod(k, layout.tiles_per_row)
+        corner = storyboard[:, row * layout.tile_height, col * layout.tile_width]
+        assert corner.tolist() == SET3[k].tolist()
+        assert corner.tolist() in bar.T.tolist()  # the border colour is a colour of the bar

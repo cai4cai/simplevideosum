@@ -53,7 +53,9 @@ HELP = {
     "-c": "Clustering method for the signatures (ignored by time); overrides the algorithm's. "
     "Available: kmedoids (k-medoids with PAM, as in videosum), dissection (temporally contiguous "
     "segments by recursive bisection; the number of frames must be a power of 2, and only "
-    "l2sq is supported). "
+    "l2sq is supported), fisher (temporally contiguous segments of least total cost, found "
+    "exactly by dynamic programming; any number of frames, only l2sq, memory grows as the "
+    "square of the number of sampled frames). "
     f"Default: {DEFAULT_CLUSTERING}.",
     "-s": "Time smoothing in [0, 1]: blends the signature distances with the temporal distance "
     "between frames, 1 gives evenly spaced contiguous clusters. Only for kmedoids. Default: 0.",

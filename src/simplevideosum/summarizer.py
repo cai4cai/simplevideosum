@@ -8,11 +8,20 @@ import torch
 from torch import nn
 
 from simplevideosum.algorithms import resolve
-from simplevideosum.collage import Layout, make_collage, make_segbar
+from simplevideosum.collage import Layout, label_colours, make_collage, make_segbar
 from simplevideosum.features import build_feature_extractor, compute_signatures
 from simplevideosum.io import VideoReader
 
 logger = logging.getLogger(__name__)
+
+
+def chronological(indices: torch.Tensor, labels: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sort the key frames in time (k-medoids returns them in any order); the labels follow, so
+    that the label of a frame is still the position of its key frame in ``indices``."""
+    order = indices.argsort()
+    rank = torch.empty_like(order)
+    rank[order] = torch.arange(len(order), device=order.device)
+    return indices[order], rank[labels]
 
 
 class VideoSummarizer:
@@ -96,13 +105,15 @@ class VideoSummarizer:
         """Return the storyboard as a (3, H, W) uint8 RGB tensor."""
         reader = VideoReader(video_path)
         candidates, indices, labels = self._select(reader)
+        indices, labels = chronological(indices, labels)
         if len(indices) < self.n_frames:
             logger.warning(
                 "Only %d of the %d requested frames available.", len(indices), self.n_frames
             )
 
         frames = reader.read([candidates[i] for i in indices.tolist()])
-        collage = make_collage(frames, self.layout)
+        colours = label_colours(torch.arange(len(indices))) if self.time_segmentation else None
+        collage = make_collage(frames, self.layout, colours)
         if self.time_segmentation:
             bar = make_segbar(labels, indices, collage.shape[2], self.segbar_height)
             collage = torch.cat([collage, bar], dim=1)

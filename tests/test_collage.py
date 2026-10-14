@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from simplevideosum.collage import Layout, make_collage, make_segbar
+from simplevideosum.collage import SET3, Layout, border_width, make_collage, make_segbar
 
 
 def test_layout_matches_reference_example():
@@ -49,3 +49,21 @@ def test_segbar_shape_and_key_frame_markers():
     assert bar[:, 0, 0].tolist() == [0, 0, 0]  # key frame 0 marker
     assert bar[:, 0, 100].tolist() == [0, 0, 0]  # key frame 50 marker
     assert bar[:, 0, 10].tolist() != [0, 0, 0]
+
+
+def test_collage_draws_a_coloured_border_over_the_edge_of_each_tile():
+    layout = Layout.fit(4, 400, 200)
+    frames = torch.full((4, 3, 20, 20), 7, dtype=torch.uint8)
+    colours = SET3[:4]
+    collage = make_collage(frames, layout, colours)
+    th, tw, b = layout.tile_height, layout.tile_width, border_width(layout)
+    assert collage.shape == make_collage(frames, layout).shape
+    for k in range(4):
+        y, x = divmod(k, layout.tiles_per_row)
+        y, x = y * th, x * tw
+        colour = colours[k].tolist()
+        assert collage[:, y, x].tolist() == colour  # corner
+        assert collage[:, y + th - 1, x + tw // 2].tolist() == colour  # bottom edge
+        assert collage[:, y + th // 2, x + b - 1].tolist() == colour  # inside the border
+        assert collage[:, y + th // 2, x + b].tolist() == [7, 7, 7]  # picture starts after it
+        assert collage[:, y + th // 2, x + tw // 2].tolist() == [7, 7, 7]

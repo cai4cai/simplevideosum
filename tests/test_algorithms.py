@@ -50,7 +50,11 @@ def test_registry_contains_time():
 
 def test_videosum_scda_preset():
     preset = ALGORITHMS["videosum_scda"]
-    assert (preset.aggregation, preset.normalisation, preset.distance) == ("scda", "none", "cosine")
+    assert (preset.aggregation, preset.normalisation, preset.distance) == (
+        "scda_fill",
+        "none",
+        "cosine",
+    )
     assert (preset.backbone, preset.clustering) == ("inceptionv3", "kmedoids")
     assert "scda" not in ALGORITHMS and "inception" not in ALGORITHMS
 
@@ -99,7 +103,7 @@ def test_resolve_applies_component_overrides():
     algorithm, clustering = resolve(
         "videosum_scda", "dissection", 16, normalisation="l2", distance="l2sq"
     )
-    assert (algorithm.aggregation, algorithm.normalisation) == ("scda", "l2")
+    assert (algorithm.aggregation, algorithm.normalisation) == ("scda_fill", "l2")
     assert (algorithm.distance, algorithm.clustering) == ("l2sq", "dissection")
     assert clustering is CLUSTERINGS["dissection"]
     assert (

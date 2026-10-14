@@ -5,6 +5,9 @@ normalisation acts on every pooled descriptor, and the P descriptors are then co
 the (N, P * C) signature (so SCDA gives the paper's "avg&maxPool").
 """
 
+from collections.abc import Callable
+from functools import partial
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -26,5 +29,13 @@ class L2Normalise(nn.Module):
         return F.normalize(pooled, dim=-1)
 
 
-AGGREGATIONS: dict[str, type[nn.Module]] = {"avgpool": GlobalAveragePool, "scda": SCDA}
-NORMALISATIONS: dict[str, type[nn.Module]] = {"none": nn.Identity, "l2": L2Normalise}
+# SCDA variants: "scda" is the paper's (largest connected component of the mask), "scda_thresh"
+# keeps every position above the threshold, and "scda_fill" also fills the holes of the mask,
+# which the paper does not do but the videosum package does.
+AGGREGATIONS: dict[str, Callable[[], nn.Module]] = {
+    "avgpool": GlobalAveragePool,
+    "scda": SCDA,
+    "scda_thresh": partial(SCDA, largest_component=False),
+    "scda_fill": partial(SCDA, fill_holes=True),
+}
+NORMALISATIONS: dict[str, Callable[[], nn.Module]] = {"none": nn.Identity, "l2": L2Normalise}

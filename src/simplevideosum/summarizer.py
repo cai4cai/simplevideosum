@@ -79,10 +79,7 @@ class VideoSummarizer:
         return (
             candidates,
             *self.clustering.select(
-                signatures.cpu().numpy(),
-                self.n_frames,
-                self.time_smoothing,
-                self.algorithm.distance,
+                signatures, self.n_frames, self.time_smoothing, self.algorithm.distance
             ),
         )
 

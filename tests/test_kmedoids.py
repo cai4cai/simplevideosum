@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 import torch
 
-from simplevideosum.kmedoids import distance_matrix, kmedoids, kmedoids_pp_init, pam
+from simplevideosum.distances import distance_matrix
+from simplevideosum.kmedoids import kmedoids, kmedoids_pp_init, pam
 
 
 def blobs(sizes, dim=4, spread=0.05, seed=0):
@@ -18,26 +19,6 @@ def blobs(sizes, dim=4, spread=0.05, seed=0):
 
 def cost(dist, medoids):
     return float(dist[:, list(medoids)].min(dim=1).values.sum())
-
-
-def test_distance_matrix_is_normalised_squared_l2():
-    x = np.random.default_rng(0).normal(size=(12, 5))
-    dist = distance_matrix(x)
-    expected = ((x[:, None] - x[None, :]) ** 2).sum(-1)
-    assert dist.max() == pytest.approx(1.0)
-    assert dist.numpy() == pytest.approx(expected / expected.max(), abs=1e-5)
-    assert torch.equal(dist, dist.T) or torch.allclose(dist, dist.T, atol=1e-6)
-    assert dist.diagonal().abs().max() == 0
-
-
-def test_time_smoothing_blends_in_the_temporal_distance():
-    x = np.random.default_rng(1).normal(size=(6, 3))
-    temporal = (np.arange(6)[:, None] - np.arange(6)[None, :]).__abs__() / 5
-    assert distance_matrix(x, 1.0).numpy() == pytest.approx(temporal, abs=1e-6)
-    half = 0.5 * distance_matrix(x).numpy() + 0.5 * temporal
-    assert distance_matrix(x, 0.5).numpy() == pytest.approx(half, abs=1e-6)
-    with pytest.raises(ValueError):
-        distance_matrix(x, 1.5)
 
 
 def test_init_returns_distinct_medoids_and_is_deterministic():
@@ -108,17 +89,16 @@ def test_fewer_frames_than_clusters_keeps_every_frame():
         kmedoids(np.zeros((3, 4)), 0)
 
 
-def test_cosine_distance_ignores_the_norm_and_is_normalised():
-    x = np.array([[1.0, 0.0], [5.0, 0.0], [0.0, 2.0], [-3.0, 0.0]])
-    dist = distance_matrix(x, metric="cosine").numpy()
-    assert dist[0, 1] == pytest.approx(0, abs=1e-6)  # same direction
-    assert dist[0, 2] == pytest.approx(0.5, abs=1e-6)  # orthogonal: 1 of the peak 2 (opposite)
-    assert dist.max() == pytest.approx(1.0) and dist[0, 3] == pytest.approx(1.0)
-    assert np.allclose(dist, dist.T) and np.all(np.diag(dist) == 0)
-
-
 def test_unknown_metric():
     with pytest.raises(ValueError, match="unknown distance"):
-        distance_matrix(np.zeros((3, 2)), metric="bogus")
-    with pytest.raises(ValueError, match="unknown distance"):
         kmedoids(np.zeros((9, 2)), 3, metric="bogus")
+
+
+def test_clustering_runs_on_the_device_of_the_signatures():
+    from simplevideosum.device import get_device
+
+    x, truth = blobs([15, 15, 15])
+    indices, labels = kmedoids(torch.as_tensor(x, dtype=torch.float32, device=get_device()), 3)
+    assert isinstance(indices, np.ndarray) and isinstance(labels, np.ndarray)
+    assert sorted(set(labels[indices])) == [0, 1, 2]
+    assert [len(set(truth[labels == k])) for k in range(3)] == [1, 1, 1]  # pure clusters

@@ -35,7 +35,10 @@ HELP = {
     "Available: " + ", ".join(COMPONENTS["backbone"]) + ".",
     "--aggregation": "How the activations are pooled into descriptors; overrides the algorithm's. "
     "Available: avgpool (global average pooling), scda (Selective Convolutional Descriptor "
-    "Aggregation: average and max pooling of the main object's descriptors).",
+    "Aggregation: average and max pooling of the descriptors of the largest connected component "
+    "above the activation threshold), scda_thresh (scda keeping every position above the "
+    "threshold, no morphology), scda_fill (scda with the holes of the object mask filled, as in "
+    "videosum).",
     "--normalisation": "Normalisation of each pooled descriptor before they are concatenated; "
     "overrides the algorithm's. Available: none, l2.",
     "--distance": "Distance between signatures; overrides the algorithm's. Available: l2sq "

@@ -66,3 +66,17 @@ def test_default_signature_is_the_global_average_of_the_maps(model):
 def test_unknown_component(kind):
     with pytest.raises(ValueError, match=f"unknown {kind}"):
         build_feature_extractor(pretrained=False, device="cpu", **{kind: "bogus"})
+
+
+def test_scda_aggregation_variants():
+    from simplevideosum.aggregation import AGGREGATIONS
+
+    options = {
+        name: (AGGREGATIONS[name]().largest_component, AGGREGATIONS[name]().fill_holes)
+        for name in ("scda", "scda_thresh", "scda_fill")
+    }
+    assert options == {
+        "scda": (True, False),  # the paper
+        "scda_thresh": (False, False),  # no morphology
+        "scda_fill": (True, True),  # videosum
+    }

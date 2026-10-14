@@ -12,8 +12,10 @@ Frame selection is made of explicit components, like in the original package but
 
 1. **backbone** (`--backbone`): the network giving convolutional activations: `inceptionv3`.
 2. **aggregation** (`--aggregation`): how the activations are pooled into one or more descriptors
-   per frame: `avgpool` (global average pooling, 2048-d for InceptionV3) or `scda` (Selective
-   Convolutional Descriptor Aggregation, average and max pooled, 2 x 2048-d).
+   per frame: `avgpool` (global average pooling, 2048-d for InceptionV3), `scda` (Selective
+   Convolutional Descriptor Aggregation, average and max pooled, 2 x 2048-d), `scda_thresh`
+   (`scda` keeping every position above the threshold, with no morphology) or `scda_fill` (`scda`
+   with the holes of the object mask filled, as in videosum).
 3. **normalisation** (`--normalisation`): applied to each pooled descriptor before they are
    concatenated into the frame signature: `none` or `l2`.
 4. **distance** (`--distance`): between signatures: `l2sq` (squared L2) or `cosine`.
@@ -27,10 +29,12 @@ the one of the algorithm:
 | --- | --- | --- | --- | --- |
 | `time` | evenly spaced frames, never looks at the images (the components are ignored) | | | |
 | `videosum_inception` | `avgpool` | `none` | `l2sq` | `kmedoids` |
-| `videosum_scda` | `scda` | `none` | `cosine` | `kmedoids` |
+| `videosum_scda` | `scda_fill` | `none` | `cosine` | `kmedoids` |
 
-All use the `inceptionv3` backbone. `videosum_scda` does not L2-normalise the pooled descriptors
-before the cosine distance, while Wei et al. (2017) do: `-a videosum_scda --normalisation l2`.
+All use the `inceptionv3` backbone. `videosum_scda` follows the videosum package, which departs
+from Wei et al. (2017) in two ways: it fills the holes of the object mask, and it does not
+L2-normalise the pooled descriptors before the cosine distance. The paper's version is
+`-a videosum_scda --aggregation scda --normalisation l2`.
 
 ## Setup
 
@@ -109,11 +113,16 @@ The input must be a single video file for now.
   of the segments on the first 17 seconds. It is kept as an experiment, `kmedoids` is the baseline.
 - **`scda` aggregation**: Selective Convolutional Descriptor Aggregation (Wei et al., 2017) of the
   8x8x2048 activations of InceptionV3's last convolutional block. The activations are summed over
-  channels, the positions above the mean form a mask, and only its largest connected component
-  (8-connected, holes filled, as in videosum) is kept. The descriptors at those positions are
-  average- and max-pooled, so the signature mostly describes the main object rather than the
-  background. The selection runs batched in PyTorch on the device. The SCDA+ multi-layer variant
-  and the flipped-image ensemble are not implemented.
+  channels, the positions above the mean form a mask, and only its largest 8-connected component
+  is kept. The descriptors at those positions are average- and max-pooled, so the signature mostly
+  describes the main object rather than the background. The selection runs batched on the device
+  (CPU, CUDA or MPS) with the pure PyTorch morphology of `simplevideosum.morphology`: components
+  of maps of up to 256 positions, such as these 8x8 maps, are found by transitive closure with
+  batched matrix products (no data-dependent loop or host synchronisation), larger maps by label
+  propagation. `scda_thresh` skips the connected component step and keeps every position above
+  the mean, and `scda_fill` also fills the holes of the mask, which the paper does not do but
+  videosum does (`SCDA(largest_component=..., fill_holes=...)` in code). The SCDA+ multi-layer
+  variant and the flipped-image ensemble are not implemented.
 - **`cosine` distance**: one minus the cosine similarity of the signatures, min-max normalised
   (and blended with the temporal distance by `-s`) like `l2sq`. With `l2` normalised pooled
   descriptors it is the mean of the cosine distances of the descriptors.

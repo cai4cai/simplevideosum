@@ -8,10 +8,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 import numpy as np
+import torch
 
 from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
+from simplevideosum.distances import DISTANCES
 from simplevideosum.features import BACKBONES
-from simplevideosum.kmedoids import DISTANCES, kmedoids
+from simplevideosum.kmedoids import kmedoids
 from simplevideosum.segmentation import dissect, is_power_of_two
 
 Selection = tuple[np.ndarray, np.ndarray]
@@ -27,7 +29,7 @@ def select_time(num_frames: int, n_key_frames: int) -> Selection:
 
 
 def select_segments(
-    signatures: np.ndarray, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
+    signatures: torch.Tensor, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
 ):
     """Cut the video into temporally contiguous segments of similar signatures.
 
@@ -35,7 +37,7 @@ def select_segments(
     The cost of a segment is its within-segment squared L2 distance, whatever ``distance`` says
     (the clustering is only offered with ``l2sq``).
     """
-    signatures = np.asarray(signatures, dtype=np.float32)
+    signatures = torch.as_tensor(signatures, dtype=torch.float32).cpu().numpy()
     bounds = dissect(signatures, n_key_frames)
     labels = np.repeat(np.arange(n_key_frames), np.diff(bounds))
     indices = np.empty(n_key_frames, dtype=int)
@@ -46,7 +48,7 @@ def select_segments(
 
 
 def select_kmedoids(
-    signatures: np.ndarray, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
+    signatures: torch.Tensor, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
 ):
     """Cluster the signatures with k-medoids; the key frames are the medoids."""
     return kmedoids(signatures, n_key_frames, time_smoothing, metric=distance)
@@ -116,8 +118,9 @@ ALGORITHMS: dict[str, Algorithm] = {
     # videosum "inception": globally pooled activations, k-medoids on squared L2 distances
     "videosum_inception": Algorithm(),
     # videosum "scda": SCDA (Wei et al., 2017), k-medoids on cosine distances. Unlike the paper,
-    # the pooled descriptors are not L2-normalised (try --normalisation l2)
-    "videosum_scda": Algorithm(aggregation="scda", distance="cosine"),
+    # the holes of the selection mask are filled and the pooled descriptors are not L2-normalised
+    # (the paper's version is --aggregation scda --normalisation l2)
+    "videosum_scda": Algorithm(aggregation="scda_fill", distance="cosine"),
 }
 
 

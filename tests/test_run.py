@@ -15,7 +15,8 @@ def test_help_documents_every_option(capsys):
     assert exc.value.code == 0
     out = capsys.readouterr().out
     for option in ("--input", "--output", "--nframes", "--width", "--height", "--algo",
-                   "--time-segmentation", "--clustering", "--time-smoothing", "--fps", "--log",
+                   "--time-segmentation", "--clustering", "--backbone", "--aggregation",
+                   "--normalisation", "--distance", "--time-smoothing", "--fps", "--log",
                    "example:"):  # fmt: skip
         assert option in out
 
@@ -42,14 +43,21 @@ def test_log_file_is_written(video_path, tmp_path):
 @pytest.mark.parametrize(
     "algo, nframes, extra, message",
     [
-        ("frechet", "16", [], "not implemented"),
         ("bogus", "16", [], "unknown algorithm"),
         ("time", "0", [], "--nframes"),
         ("time", "16", ["-s", "0.5"], "cannot use time smoothing"),
-        ("inception", "16", ["-c", "bogus"], "unknown clustering"),
-        ("inception", "12", ["-c", "dissection"], "power of 2"),
-        ("inception", "16", ["-c", "dissection", "-s", "0.5"], "cannot use time smoothing"),
-        ("inception", "16", ["-s", "1.5"], "time smoothing must be in"),
+        ("videosum_inception", "16", ["-c", "bogus"], "unknown clustering"),
+        ("videosum_inception", "12", ["-c", "dissection"], "power of 2"),
+        (
+            "videosum_inception",
+            "16",
+            ["-c", "dissection", "-s", "0.5"],
+            "cannot use time smoothing",
+        ),
+        ("videosum_inception", "16", ["-s", "1.5"], "time smoothing must be in"),
+        ("videosum_inception", "16", ["--distance", "bogus"], "unknown distance"),
+        ("videosum_inception", "16", ["--aggregation", "bogus"], "unknown aggregation"),
+        ("videosum_scda", "16", ["-c", "dissection"], "only supports the l2sq distance"),
     ],
 )
 def test_invalid_arguments_exit_with_usage_error(

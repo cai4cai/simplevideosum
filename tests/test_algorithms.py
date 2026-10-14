@@ -40,7 +40,19 @@ def test_time_rejects_invalid_arguments():
 def test_registry_contains_time():
     assert ALGORITHMS["time"].select is select_time
     assert not ALGORITHMS["time"].uses_signatures
-    assert ALGORITHMS["inception"].uses_signatures
+    assert ALGORITHMS["videosum_inception"].uses_signatures
+
+    default = ALGORITHMS["videosum_inception"]
+    assert (default.backbone, default.aggregation, default.normalisation, default.distance) == (
+        "inceptionv3", "avgpool", "none", "l2sq")  # fmt: skip
+    assert default.clustering == DEFAULT_CLUSTERING
+
+
+def test_videosum_scda_preset():
+    preset = ALGORITHMS["videosum_scda"]
+    assert (preset.aggregation, preset.normalisation, preset.distance) == ("scda", "none", "cosine")
+    assert (preset.backbone, preset.clustering) == ("inceptionv3", "kmedoids")
+    assert "scda" not in ALGORITHMS and "inception" not in ALGORITHMS
 
 
 def piecewise_signatures(lengths, centres, noise=0.01, seed=0):
@@ -78,9 +90,21 @@ def test_clustering_registry():
 
 
 def test_resolve_picks_the_default_clustering_for_signature_algorithms():
-    algorithm, clustering = resolve("inception", None, 12)
+    algorithm, clustering = resolve("videosum_inception", None, 12)
     assert algorithm.uses_signatures and clustering is CLUSTERINGS["kmedoids"]
-    assert resolve("inception", "dissection", 16)[1] is CLUSTERINGS["dissection"]
+    assert resolve("videosum_inception", "dissection", 16)[1] is CLUSTERINGS["dissection"]
+
+
+def test_resolve_applies_component_overrides():
+    algorithm, clustering = resolve(
+        "videosum_scda", "dissection", 16, normalisation="l2", distance="l2sq"
+    )
+    assert (algorithm.aggregation, algorithm.normalisation) == ("scda", "l2")
+    assert (algorithm.distance, algorithm.clustering) == ("l2sq", "dissection")
+    assert clustering is CLUSTERINGS["dissection"]
+    assert (
+        resolve("videosum_scda", None, 8, distance=None)[0] == ALGORITHMS["videosum_scda"]
+    )  # None keeps preset
 
 
 def test_resolve_ignores_the_clustering_for_the_time_algorithm():
@@ -91,22 +115,33 @@ def test_resolve_ignores_the_clustering_for_the_time_algorithm():
 @pytest.mark.parametrize(
     "args, message",
     [
-        (("frechet", None, 16), "not implemented"),
         (("bogus", None, 16), "unknown algorithm"),
-        (("inception", "bogus", 16), "unknown clustering"),
-        (("inception", "dissection", 12), "power of 2"),
-        (("inception", "dissection", 16, 0.5), "cannot use time smoothing"),
+        (("videosum_inception", "bogus", 16), "unknown clustering"),
+        (("videosum_inception", "dissection", 12), "power of 2"),
+        (("videosum_inception", "dissection", 16, 0.5), "cannot use time smoothing"),
         (("time", None, 16, 0.5), "cannot use time smoothing"),
-        (("inception", None, 16, 1.5), "time smoothing must be in"),
+        (("videosum_inception", None, 16, 1.5), "time smoothing must be in"),
+        (("videosum_scda", "dissection", 16), "only supports the l2sq distance"),
+        (("videosum_inception", None, 16, 0.0, "backbone", "bogus"), "unknown backbone"),
     ],
 )
 def test_resolve_rejects_invalid_combinations(args, message):
+    if len(args) == 6:  # a component override: (*positional, name, value)
+        *args, name, value = args
+        kwargs = {name: value}
+    else:
+        kwargs = {}
     with pytest.raises(ValueError, match=message):
-        resolve(*args)
+        resolve(*args, **kwargs)
+
+
+def test_resolve_rejects_unknown_component_names():
+    with pytest.raises(TypeError):
+        resolve("videosum_inception", None, 16, colour="red")
 
 
 def test_resolve_accepts_any_number_of_frames_for_kmedoids():
-    resolve("inception", "kmedoids", 12, 0.3)
+    resolve("videosum_inception", "kmedoids", 12, 0.3)
 
 
 def test_kmedoids_selection_matches_segments_on_obvious_scenes():

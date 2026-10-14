@@ -106,3 +106,19 @@ def test_fewer_frames_than_clusters_keeps_every_frame():
     assert indices.tolist() == [0, 1, 2] and labels.tolist() == [0, 1, 2]
     with pytest.raises(ValueError):
         kmedoids(np.zeros((3, 4)), 0)
+
+
+def test_cosine_distance_ignores_the_norm_and_is_normalised():
+    x = np.array([[1.0, 0.0], [5.0, 0.0], [0.0, 2.0], [-3.0, 0.0]])
+    dist = distance_matrix(x, metric="cosine").numpy()
+    assert dist[0, 1] == pytest.approx(0, abs=1e-6)  # same direction
+    assert dist[0, 2] == pytest.approx(0.5, abs=1e-6)  # orthogonal: 1 of the peak 2 (opposite)
+    assert dist.max() == pytest.approx(1.0) and dist[0, 3] == pytest.approx(1.0)
+    assert np.allclose(dist, dist.T) and np.all(np.diag(dist) == 0)
+
+
+def test_unknown_metric():
+    with pytest.raises(ValueError, match="unknown distance"):
+        distance_matrix(np.zeros((3, 2)), metric="bogus")
+    with pytest.raises(ValueError, match="unknown distance"):
+        kmedoids(np.zeros((9, 2)), 3, metric="bogus")

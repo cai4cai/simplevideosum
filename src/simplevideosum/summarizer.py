@@ -16,9 +16,11 @@ from simplevideosum.io import VideoReader
 class VideoSummarizer:
     """Summarise a video into a single-image storyboard of key frames.
 
-    ``feature_extractor`` overrides the default pre-trained InceptionV3 used by the algorithms
-    that compare frame signatures. ``clustering`` (default: k-medoids) and ``time_smoothing`` only
-    apply to those algorithms.
+    ``algo`` names a configuration of the components of frame selection (see ``algorithms``);
+    ``backbone``, ``aggregation``, ``normalisation``, ``distance`` and ``clustering`` override its
+    components, and ``time_smoothing`` tunes the clustering, for the algorithms that compare frame
+    signatures. ``feature_extractor`` replaces the pre-trained model that would be built from the
+    backbone, aggregation and normalisation.
     """
 
     def __init__(
@@ -33,16 +35,27 @@ class VideoSummarizer:
         feature_extractor: nn.Module | None = None,
         clustering: str | None = None,
         time_smoothing: float = 0.0,
+        backbone: str | None = None,
+        aggregation: str | None = None,
+        normalisation: str | None = None,
+        distance: str | None = None,
     ) -> None:
-        self.algorithm, self.clustering = resolve(algo, clustering, n_frames, time_smoothing)
+        components = {
+            "backbone": backbone,
+            "aggregation": aggregation,
+            "normalisation": normalisation,
+            "distance": distance,
+        }
+        self.algorithm, self.clustering = resolve(
+            algo, clustering, n_frames, time_smoothing, **components
+        )
         self.algo = algo
         self.n_frames = n_frames
         self.fps = fps
         self.time_smoothing = time_smoothing
         if not self.algorithm.uses_signatures:
-            ignored = [
-                name for name, value in (("--fps", fps), ("--clustering", clustering)) if value
-            ]
+            given = {"fps": fps, "clustering": clustering, **components}
+            ignored = [f"--{name}" for name, value in given.items() if value]
             if ignored:
                 print(f"[WARN] The '{algo}' algorithm ignores {' and '.join(ignored)}.")
         self.time_segmentation = time_segmentation
@@ -57,11 +70,20 @@ class VideoSummarizer:
             return (candidates, *self.algorithm.select(len(candidates), self.n_frames))
         candidates = reader.sampled_indices(self.fps)
         if self.feature_extractor is None:
-            self.feature_extractor = build_feature_extractor()
+            self.feature_extractor = build_feature_extractor(
+                backbone=self.algorithm.backbone,
+                aggregation=self.algorithm.aggregation,
+                normalisation=self.algorithm.normalisation,
+            )
         signatures = compute_signatures(reader, candidates, self.feature_extractor)
         return (
             candidates,
-            *self.clustering.select(signatures.cpu().numpy(), self.n_frames, self.time_smoothing),
+            *self.clustering.select(
+                signatures.cpu().numpy(),
+                self.n_frames,
+                self.time_smoothing,
+                self.algorithm.distance,
+            ),
         )
 
     def summarize(self, video_path: str | Path) -> torch.Tensor:

@@ -1,7 +1,7 @@
 """k-medoids clustering of per-frame signatures, as in the original videosum package.
 
-Distances are squared L2 distances between signatures, min-max normalised, optionally blended
-with the normalised temporal distance between frames (time smoothing). The medoids are
+Distances are squared L2 or cosine distances between signatures, min-max normalised, optionally
+blended with the normalised temporal distance between frames (time smoothing). The medoids are
 initialised with k-medoids++ and refined with PAM swaps (FastPAM1 formulation, vectorised, so
 all the swaps are evaluated in O(N^2) per iteration).
 """
@@ -10,20 +10,33 @@ import math
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+
+DISTANCES = ("l2sq", "cosine")
 
 
-def distance_matrix(signatures: np.ndarray, time_smoothing: float = 0.0) -> torch.Tensor:
-    """(N, N) float32 matrix of normalised squared L2 distances, blended with temporal distance.
+def distance_matrix(
+    signatures: np.ndarray, time_smoothing: float = 0.0, metric: str = "l2sq"
+) -> torch.Tensor:
+    """(N, N) float32 matrix of normalised signature distances, blended with temporal distance.
+
+    ``metric`` is ``"l2sq"`` (squared L2) or ``"cosine"`` (one minus the cosine similarity).
 
     ``time_smoothing`` in [0, 1]: 0 uses only the signatures, 1 only the frame order (which
     makes the clusters temporally contiguous, like the ``time`` algorithm).
     """
     if not 0.0 <= time_smoothing <= 1.0:
         raise ValueError("time_smoothing must be in [0, 1]")
+    if metric not in DISTANCES:
+        raise ValueError(f"unknown distance '{metric}' (available: {', '.join(DISTANCES)})")
     x = torch.as_tensor(np.asarray(signatures, dtype=np.float32))
-    x = x - x.mean(dim=0)  # distances are translation invariant, centring avoids cancellation
-    squares = (x * x).sum(dim=1)
-    dist = (squares[:, None] + squares[None, :] - 2 * x @ x.T).clamp_(min=0)
+    if metric == "cosine":
+        x = F.normalize(x, dim=1)
+        dist = (1 - x @ x.T).clamp_(min=0, max=2)
+    else:
+        x = x - x.mean(dim=0)  # distances are translation invariant, centring avoids cancellation
+        squares = (x * x).sum(dim=1)
+        dist = (squares[:, None] + squares[None, :] - 2 * x @ x.T).clamp_(min=0)
     dist.fill_diagonal_(0)
     peak = dist.max()
     if peak > 0:
@@ -107,7 +120,11 @@ def pam(
 
 
 def kmedoids(
-    signatures: np.ndarray, k: int, time_smoothing: float = 0.0, seed: int = 0
+    signatures: np.ndarray,
+    k: int,
+    time_smoothing: float = 0.0,
+    seed: int = 0,
+    metric: str = "l2sq",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Cluster the frames into ``k`` clusters around medoid frames.
 
@@ -120,7 +137,7 @@ def kmedoids(
         raise ValueError("k must be >= 1")
     if n <= k:  # nothing to cluster: every frame is its own cluster
         return np.arange(n), np.arange(n)
-    dist = distance_matrix(signatures, time_smoothing)
+    dist = distance_matrix(signatures, time_smoothing, metric)
     medoids = pam(dist, kmedoids_pp_init(dist, k, np.random.default_rng(seed)))
     medoids = np.sort(medoids)
     labels = dist[:, torch.as_tensor(medoids)].argmin(dim=1).numpy()

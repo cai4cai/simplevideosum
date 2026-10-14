@@ -37,6 +37,16 @@ class VideoReader:
         meta = self._decoder.metadata
         return meta.height, meta.width
 
+    def sampled_indices(self, fps: float | None = None) -> list[int]:
+        """Frame indices of the video resampled at ``fps`` (all frames if None or >= native)."""
+        if fps is not None and fps <= 0:
+            raise ValueError("fps must be > 0")
+        if fps is None or fps >= self.fps:
+            return list(range(self.num_frames))
+        step = self.fps / fps
+        count = max(1, int(self.num_frames / step))
+        return [min(round(i * step), self.num_frames - 1) for i in range(count)]
+
     def read(self, indices: list[int]) -> torch.Tensor:
         """Return the frames at ``indices`` as a (len(indices), 3, H, W) uint8 tensor."""
         return self._decoder.get_frames_at(indices).data

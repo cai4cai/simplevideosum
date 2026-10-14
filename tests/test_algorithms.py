@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import torch
 
 from simplevideosum.algorithms import (
     ALGORITHMS,
@@ -21,7 +22,7 @@ def test_time_indices_are_evenly_spaced():
 def test_time_labels_point_to_nearest_key_frame():
     indices, labels = select_time(101, 5)
     assert labels[0] == 0 and labels[100] == 4
-    assert np.all(np.abs(np.arange(101) - indices[labels]) <= 12)
+    assert bool(((torch.arange(101) - indices[labels]).abs() <= 12).all())
 
 
 def test_time_with_fewer_frames_than_requested_deduplicates():
@@ -73,8 +74,8 @@ def test_segments_recover_obvious_scenes():
     centres = [(0, 0), (10, 0), (100, 0), (110, 5)]
     signatures = piecewise_signatures([10, 30, 20, 40], centres)
     indices, labels = select_segments(signatures, 4)
-    assert np.bincount(labels).tolist() == [10, 30, 20, 40]
-    assert np.all(np.diff(labels) >= 0)  # temporally contiguous
+    assert labels.bincount().tolist() == [10, 30, 20, 40]
+    assert bool((labels.diff() >= 0).all())  # temporally contiguous
     assert indices.tolist() == sorted(indices.tolist())
     assert [labels[i] for i in indices] == [0, 1, 2, 3]  # key frame k lies in segment k
 
@@ -84,7 +85,7 @@ def test_segments_key_frame_is_closest_to_segment_mean():
     indices, _ = select_segments(signatures, 2)
     for k, (start, end) in enumerate([(0, 5), (5, 8)]):
         seg = signatures[start:end, 0]
-        assert indices[k] == start + np.argmin(np.abs(seg - seg.mean()))
+        assert int(indices[k]) == start + int(np.argmin(np.abs(seg - seg.mean())))
 
 
 def test_clustering_registry():
@@ -152,5 +153,5 @@ def test_kmedoids_selection_matches_segments_on_obvious_scenes():
     centres = [(0, 0), (10, 0), (100, 0), (110, 5)]
     signatures = piecewise_signatures([10, 30, 20, 40], centres)
     indices, labels = select_kmedoids(signatures, 4)
-    assert np.bincount(labels).tolist() == [10, 30, 20, 40]
+    assert labels.bincount().tolist() == [10, 30, 20, 40]
     assert [labels[i] for i in indices] == [0, 1, 2, 3]

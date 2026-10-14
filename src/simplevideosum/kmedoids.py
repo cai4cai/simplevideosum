@@ -7,56 +7,56 @@ evaluated in O(N^2) per iteration).
 
 import math
 
-import numpy as np
 import torch
 
 from simplevideosum.distances import distance_matrix
 
 
-def kmedoids_pp_init(dist: torch.Tensor, k: int, rng: np.random.Generator) -> np.ndarray:
+def kmedoids_pp_init(dist: torch.Tensor, k: int, generator: torch.Generator) -> torch.Tensor:
     """k-medoids++ seeding: medoids are sampled proportionally to their distance to the
-    closest medoid so far, keeping the best of a few local trials at each step."""
-    n = len(dist)
+    closest medoid so far, keeping the best of a few local trials at each step.
+
+    ``generator`` lives on the device of ``dist``, and nothing is copied to the host. Returns
+    the (k,) medoid indices.
+    """
+    n, device = len(dist), dist.device
     n_trials = 2 + int(math.log(k)) if k > 1 else 1
-    medoids = [int(rng.integers(n))]
+    medoids = torch.randint(n, (1,), generator=generator, device=device)
+    is_medoid = torch.zeros(n, dtype=torch.bool, device=device)
+    is_medoid[medoids] = True
     closest = dist[medoids[0]].clone()
     for _ in range(1, k):
-        total = float(closest.sum())
-        if total <= 0:  # all the remaining frames coincide with a medoid
-            unused = np.setdiff1d(np.arange(n), medoids)
-            medoids.append(int(rng.choice(unused)))
-            closest = torch.minimum(closest, dist[medoids[-1]])
-            continue
-        cumulative = np.cumsum(closest.cpu().double().numpy())  # float64: not on MPS
-        picks = np.searchsorted(cumulative, rng.random(n_trials) * total)
-        picks = np.clip(picks, 0, n - 1)
-        potentials = torch.minimum(
-            closest[None, :], dist[torch.as_tensor(picks, device=dist.device)]
-        )
-        potentials = potentials.sum(dim=1)
-        best = int(picks[int(potentials.argmin())])
-        medoids.append(best)
+        # if all the remaining frames coincide with a medoid, any other frame will do
+        weights = torch.where(closest.sum() > 0, closest, (~is_medoid).float())
+        picks = torch.multinomial(weights, n_trials, replacement=True, generator=generator)
+        potentials = torch.minimum(closest[None, :], dist[picks]).sum(dim=1)
+        best = picks[potentials.argmin()]
+        medoids = torch.cat([medoids, best[None]])
+        is_medoid[best] = True
         closest = torch.minimum(closest, dist[best])
-    return np.array(medoids)
+    return medoids
 
 
 def pam(
     dist: torch.Tensor,
-    medoids: np.ndarray,
+    medoids: torch.Tensor,
     max_iter: int = 300,
     chunk: int = 1024,
     tol: float = 1e-7,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Refine ``medoids`` by repeatedly applying the best medoid/non-medoid swap (PAM).
 
     The cost change of swapping medoid ``i`` for candidate ``h`` is evaluated for every pair at
     once from the nearest and second nearest medoid distances of each point. Candidates are
-    processed in chunks to bound the memory of the (candidates x N) temporaries.
+    processed in chunks to bound the memory of the (candidates x N) temporaries. The best swap
+    is tracked on the device: the only host synchronisation is the test for convergence, once
+    per iteration.
     """
     n, k = len(dist), len(medoids)
-    medoids = torch.as_tensor(medoids, dtype=torch.long, device=dist.device).clone()
+    device = dist.device
+    medoids = torch.as_tensor(medoids, dtype=torch.long, device=device).clone()
     if k >= n:
-        return medoids.cpu().numpy()
+        return medoids
     for _ in range(max_iter):
         to_medoids = dist[:, medoids]  # (N, k)
         if k > 1:
@@ -66,27 +66,29 @@ def pam(
         else:
             d1 = to_medoids[:, 0]
             d2 = torch.full_like(d1, float("inf"))
-            nearest = torch.zeros(n, dtype=torch.long, device=dist.device)
+            nearest = torch.zeros(n, dtype=torch.long, device=device)
         membership = torch.nn.functional.one_hot(nearest, k).to(dist.dtype)  # (N, k)
 
-        best_delta, best_swap = 0.0, None
+        best_delta = torch.zeros((), dtype=dist.dtype, device=device)
+        best_h = torch.zeros((), dtype=torch.long, device=device)
+        best_i = torch.zeros((), dtype=torch.long, device=device)
         for start in range(0, n, chunk):
             rows = dist[start : start + chunk]  # (c, N): distance from candidate h to every p
             gain = (rows - d1[None, :]).clamp(max=0)
             # points whose nearest medoid is removed move to h or to their second nearest
             loss = torch.minimum(rows, d2[None, :]) - d1[None, :] - gain
             delta = gain.sum(dim=1, keepdim=True) + loss @ membership  # (c, k)
-            delta[
-                torch.isin(torch.arange(start, start + len(rows), device=dist.device), medoids)
-            ] = float("inf")
+            candidates = torch.arange(start, start + len(rows), device=device)
+            delta[torch.isin(candidates, medoids)] = float("inf")
             value, flat = delta.flatten().min(dim=0)
-            if float(value) < best_delta:
-                h, i = divmod(int(flat), k)
-                best_delta, best_swap = float(value), (start + h, i)
-        if best_swap is None or best_delta > -tol:
+            better = value < best_delta
+            best_delta = torch.where(better, value, best_delta)
+            best_h = torch.where(better, start + flat // k, best_h)
+            best_i = torch.where(better, flat % k, best_i)
+        if best_delta > -tol:
             break
-        medoids[best_swap[1]] = best_swap[0]
-    return medoids.cpu().numpy()
+        medoids[best_i] = best_h
+    return medoids
 
 
 def kmedoids(
@@ -95,22 +97,25 @@ def kmedoids(
     time_smoothing: float = 0.0,
     seed: int = 0,
     metric: str = "l2sq",
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Cluster the frames into ``k`` clusters around medoid frames.
 
-    ``signatures`` is (N, D), on any device; the distances and the PAM swaps run on it.
+    ``signatures`` is (N, D), on any device (see ``distances.distance_matrix``); the distances,
+    the seeding and the PAM swaps run on it. The result is reproducible for a given ``seed`` on
+    a given device, but not across devices.
 
-    Returns ``(indices, labels)``: the medoid frame indices sorted in time, and for every frame
-    the position in ``indices`` of the medoid of its cluster. Clusters are not necessarily
-    contiguous in time (unless ``time_smoothing`` is 1).
+    Returns ``(indices, labels)`` on that device: the (k,) medoid frame indices sorted in time,
+    and for every frame the position in ``indices`` of the medoid of its cluster. Clusters are
+    not necessarily contiguous in time (unless ``time_smoothing`` is 1).
     """
+    signatures = torch.as_tensor(signatures)
     n = len(signatures)
     if k < 1:
         raise ValueError("k must be >= 1")
     if n <= k:  # nothing to cluster: every frame is its own cluster
-        return np.arange(n), np.arange(n)
+        every = torch.arange(n, device=signatures.device)
+        return every, every.clone()
     dist = distance_matrix(signatures, time_smoothing, metric)
-    medoids = pam(dist, kmedoids_pp_init(dist, k, np.random.default_rng(seed)))
-    medoids = np.sort(medoids)
-    labels = dist[:, torch.as_tensor(medoids, device=dist.device)].argmin(dim=1).cpu().numpy()
-    return medoids, labels
+    generator = torch.Generator(device=dist.device).manual_seed(seed)
+    medoids = pam(dist, kmedoids_pp_init(dist, k, generator)).sort().values
+    return medoids, dist[:, medoids].argmin(dim=1)

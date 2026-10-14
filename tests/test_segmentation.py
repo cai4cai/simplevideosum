@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import torch
 
 from simplevideosum.segmentation import CumulativeStats, dissect, is_power_of_two
 
@@ -14,7 +15,7 @@ def test_cumulative_cost_matches_brute_force():
     x = rng.normal(size=(50, 6)) + 100  # large offset: checks numerical conditioning
     stats = CumulativeStats.from_signatures(x)
     for start, end in [(0, 50), (3, 4), (0, 1), (10, 37), (49, 50)]:
-        assert stats.cost(start, end) == pytest.approx(
+        assert float(stats.cost(start, end)) == pytest.approx(
             brute_force_cost(x, start, end), rel=1e-4, abs=1e-3
         )
 
@@ -22,15 +23,15 @@ def test_cumulative_cost_matches_brute_force():
 def test_cost_is_vectorised_over_segments():
     x = np.random.default_rng(1).normal(size=(30, 4))
     stats = CumulativeStats.from_signatures(x)
-    ends = np.arange(1, 31)
-    expected = [brute_force_cost(x, 0, e) for e in ends]
-    assert stats.cost(0, ends) == pytest.approx(expected, rel=1e-4, abs=1e-3)
+    ends = torch.arange(1, 31)
+    expected = [brute_force_cost(x, 0, e) for e in ends.tolist()]
+    assert stats.cost(0, ends).tolist() == pytest.approx(expected, rel=1e-4, abs=1e-3)
 
 
 def test_cost_dtype_follows_requested_precision():
     x = np.random.default_rng(5).normal(size=(10, 3))
-    assert CumulativeStats.from_signatures(x).cost(0, 10).dtype == np.float32
-    assert CumulativeStats.from_signatures(x, np.float64).cost(0, 10).dtype == np.float64
+    assert CumulativeStats.from_signatures(x).cost(0, 10).dtype == torch.float32
+    assert CumulativeStats.from_signatures(x, torch.float64).cost(0, 10).dtype == torch.float64
 
 
 def test_float32_is_accurate_enough_on_a_long_noisy_video():
@@ -40,10 +41,10 @@ def test_float32_is_accurate_enough_on_a_long_noisy_video():
     )
 
     def objective(bounds):  # evaluated in float64
-        stats = CumulativeStats.from_signatures(x, np.float64)
-        return stats.cost(bounds[:-1], bounds[1:]).sum()
+        stats = CumulativeStats.from_signatures(x, torch.float64)
+        return float(stats.cost(bounds[:-1], bounds[1:]).sum())
 
-    b32, b64 = dissect(x, 16), dissect(x, 16, dtype=np.float64)
+    b32, b64 = dissect(x, 16), dissect(x, 16, dtype=torch.float64)
     assert objective(b32) == pytest.approx(objective(b64), rel=1e-4)
 
 
@@ -57,7 +58,7 @@ def test_dissect_boundaries_cover_the_video_with_non_empty_segments():
     x = np.random.default_rng(3).normal(size=(37, 5))
     bounds = dissect(x, 8)
     assert bounds[0] == 0 and bounds[-1] == 37 and len(bounds) == 9
-    assert np.all(np.diff(bounds) >= 1)
+    assert bool((bounds.diff() >= 1).all())
 
 
 def test_dissect_with_as_many_segments_as_frames():
@@ -74,3 +75,13 @@ def test_dissect_validation():
 
 def test_is_power_of_two():
     assert [n for n in range(0, 20) if is_power_of_two(n)] == [1, 2, 4, 8, 16]
+
+
+def test_dissect_runs_on_the_device_of_the_signatures():
+    from simplevideosum.device import get_device
+
+    device = get_device()
+    x = torch.randn(40, 3)
+    on_device = dissect(x.to(device), 4)
+    assert on_device.device.type == device.type
+    assert on_device.tolist() == dissect(x, 4).tolist()

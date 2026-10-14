@@ -7,7 +7,6 @@ position in ``indices`` of the key frame that represents it.
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-import numpy as np
 import torch
 
 from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
@@ -16,40 +15,42 @@ from simplevideosum.features import BACKBONES
 from simplevideosum.kmedoids import kmedoids
 from simplevideosum.segmentation import dissect, is_power_of_two
 
-Selection = tuple[np.ndarray, np.ndarray]
+Selection = tuple[torch.Tensor, torch.Tensor]
 
 
 def select_time(num_frames: int, n_key_frames: int) -> Selection:
     """Pick key frames evenly spaced in time; each frame is labelled by its nearest key frame."""
     if num_frames < 1 or n_key_frames < 1:
         raise ValueError("num_frames and n_key_frames must be >= 1")
-    indices = np.unique(np.round(np.linspace(0, num_frames - 1, n_key_frames)).astype(int))
-    distances = np.abs(np.arange(num_frames)[:, None] - indices[None, :])
-    return indices, distances.argmin(axis=1)
+    positions = torch.linspace(0, num_frames - 1, n_key_frames, dtype=torch.float64)
+    indices = positions.round().long().unique()
+    distances = (torch.arange(num_frames)[:, None] - indices[None, :]).abs()
+    return indices, distances.argmin(dim=1)
 
 
 def select_segments(
     signatures: torch.Tensor, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
-):
+) -> Selection:
     """Cut the video into temporally contiguous segments of similar signatures.
 
     The key frame of each segment is the one whose signature is closest to the segment mean.
     The cost of a segment is its within-segment squared L2 distance, whatever ``distance`` says
-    (the clustering is only offered with ``l2sq``).
+    (the clustering is only offered with ``l2sq``). The result is on the signatures' device.
     """
-    signatures = torch.as_tensor(signatures, dtype=torch.float32).cpu().numpy()
+    signatures = torch.as_tensor(signatures, dtype=torch.float32)
     bounds = dissect(signatures, n_key_frames)
-    labels = np.repeat(np.arange(n_key_frames), np.diff(bounds))
-    indices = np.empty(n_key_frames, dtype=int)
-    for k, (start, end) in enumerate(zip(bounds[:-1], bounds[1:], strict=True)):
+    labels = torch.arange(n_key_frames, device=signatures.device).repeat_interleave(bounds.diff())
+    indices = torch.empty(n_key_frames, dtype=torch.long, device=signatures.device)
+    edges = bounds.tolist()
+    for k, (start, end) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
         segment = signatures[start:end]
-        indices[k] = start + np.argmin(((segment - segment.mean(axis=0)) ** 2).sum(axis=1))
+        indices[k] = start + ((segment - segment.mean(dim=0)) ** 2).sum(dim=1).argmin()
     return indices, labels
 
 
 def select_kmedoids(
     signatures: torch.Tensor, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
-):
+) -> Selection:
     """Cluster the signatures with k-medoids; the key frames are the medoids."""
     return kmedoids(signatures, n_key_frames, time_smoothing, metric=distance)
 

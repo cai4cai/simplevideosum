@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 import torch
 
@@ -43,7 +42,8 @@ def test_collage_rejects_too_many_frames():
 
 
 def test_segbar_shape_and_key_frame_markers():
-    indices, labels = np.array([0, 50, 99]), np.repeat([0, 1, 2], [25, 50, 25])
+    indices = torch.tensor([0, 50, 99])
+    labels = torch.tensor([0, 1, 2]).repeat_interleave(torch.tensor([25, 50, 25]))
     bar = make_segbar(labels, indices, width=200, height=8)
     assert bar.shape == (3, 8, 200) and bar.dtype == torch.uint8
     assert bar[:, 0, 0].tolist() == [0, 0, 0]  # key frame 0 marker

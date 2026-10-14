@@ -8,50 +8,55 @@ Segments are half-open index ranges ``[start, end)``.
 
 from dataclasses import dataclass
 
-import numpy as np
+import torch
 
 
 @dataclass(frozen=True)
 class CumulativeStats:
     """Prefix sums of signatures and of their squared norms, with a leading zero row."""
 
-    sums: np.ndarray  # (N + 1, D)
-    squares: np.ndarray  # (N + 1,)
+    sums: torch.Tensor  # (N + 1, D)
+    squares: torch.Tensor  # (N + 1,)
 
     @classmethod
-    def from_signatures(cls, signatures: np.ndarray, dtype=np.float32) -> "CumulativeStats":
+    def from_signatures(
+        cls, signatures: torch.Tensor, dtype: torch.dtype = torch.float32
+    ) -> "CumulativeStats":
         # The cost is translation invariant: centring the signatures keeps the prefix sums
         # small, which is what makes float32 accurate enough (see the tests).
-        x = np.asarray(signatures, dtype=dtype)
-        x = x - x.mean(axis=0)
-        sums = np.zeros((len(x) + 1, x.shape[1]), dtype=dtype)
-        np.cumsum(x, axis=0, out=sums[1:])
-        squares = np.zeros(len(x) + 1, dtype=dtype)
-        np.cumsum((x * x).sum(axis=1), out=squares[1:])
+        x = torch.as_tensor(signatures, dtype=dtype)
+        x = x - x.mean(dim=0)
+        sums = torch.cat([x.new_zeros(1, x.shape[1]), x.cumsum(dim=0)])
+        squares = torch.cat([x.new_zeros(1), (x * x).sum(dim=1).cumsum(dim=0)])
         return cls(sums, squares)
 
-    def cost(self, starts: np.ndarray | int, ends: np.ndarray | int) -> np.ndarray:
+    def cost(self, starts: torch.Tensor | int, ends: torch.Tensor | int) -> torch.Tensor:
         """Cost of the segments ``[starts, ends)`` (broadcast): sum ||x - mean||^2."""
-        starts, ends = np.asarray(starts), np.asarray(ends)
+        device = self.sums.device
+        starts, ends = torch.as_tensor(starts, device=device), torch.as_tensor(ends, device=device)
         total = self.sums[ends] - self.sums[starts]
         energy = self.squares[ends] - self.squares[starts]
-        length = (ends - starts).astype(total.dtype)
-        return np.maximum(energy - (total * total).sum(axis=-1) / length, 0)
+        length = (ends - starts).to(total.dtype)
+        return (energy - (total * total).sum(dim=-1) / length).clamp(min=0)
 
 
 def is_power_of_two(n: int) -> bool:
     return n >= 1 and n & (n - 1) == 0
 
 
-def dissect(signatures: np.ndarray, n_segments: int, dtype=np.float32) -> np.ndarray:
+def dissect(
+    signatures: torch.Tensor, n_segments: int, dtype: torch.dtype = torch.float32
+) -> torch.Tensor:
     """Split the frames into ``n_segments`` contiguous segments by recursive bisection.
 
     Each segment is split where the sum of the costs of the two halves is smallest, until
-    ``n_segments`` (a power of two) segments are obtained. Returns the ``n_segments + 1``
-    boundaries ``b``: segment ``k`` is ``[b[k], b[k + 1])``.
+    ``n_segments`` (a power of two) segments are obtained. The costs are evaluated on the device
+    of the signatures, with one host synchronisation per cut. Returns the ``n_segments + 1``
+    boundaries ``b`` on that device: segment ``k`` is ``[b[k], b[k + 1])``.
     """
     if not is_power_of_two(n_segments):
         raise ValueError(f"the number of segments must be a power of 2, got {n_segments}")
+    signatures = torch.as_tensor(signatures)
     n_frames = len(signatures)
     if n_frames < n_segments:
         raise ValueError(f"cannot split {n_frames} frames into {n_segments} segments")
@@ -61,9 +66,9 @@ def dissect(signatures: np.ndarray, n_segments: int, dtype=np.float32) -> np.nda
         if n == 1:
             return [start]
         half = n // 2  # each side keeps enough frames for its own segments
-        candidates = np.arange(start + half, end - half + 1)
+        candidates = torch.arange(start + half, end - half + 1, device=signatures.device)
         costs = stats.cost(start, candidates) + stats.cost(candidates, end)
-        mid = int(candidates[np.argmin(costs)])
+        mid = start + half + int(costs.argmin())
         return split(start, mid, half) + split(mid, end, half)
 
-    return np.array(split(0, n_frames, n_segments) + [n_frames])
+    return torch.tensor(split(0, n_frames, n_segments) + [n_frames], device=signatures.device)

@@ -3,7 +3,6 @@
 from collections.abc import Sequence
 from pathlib import Path
 
-import numpy as np
 import torch
 from torch import nn
 
@@ -63,7 +62,7 @@ class VideoSummarizer:
         self.feature_extractor = feature_extractor
         self.layout = Layout.fit(n_frames, width, height)
 
-    def _select(self, reader: VideoReader) -> tuple[Sequence[int], np.ndarray, np.ndarray]:
+    def _select(self, reader: VideoReader) -> tuple[Sequence[int], torch.Tensor, torch.Tensor]:
         """Returns the candidate frame indices, the key frame positions in them and the labels."""
         if not self.algorithm.uses_signatures:
             candidates = range(reader.num_frames)
@@ -90,7 +89,7 @@ class VideoSummarizer:
         if len(indices) < self.n_frames:
             print(f"[WARN] Only {len(indices)} of the {self.n_frames} requested frames available.")
 
-        frames = reader.read([candidates[i] for i in indices])
+        frames = reader.read([candidates[i] for i in indices.tolist()])
         collage = make_collage(frames, self.layout)
         if self.time_segmentation:
             bar = make_segbar(labels, indices, collage.shape[2], self.segbar_height)

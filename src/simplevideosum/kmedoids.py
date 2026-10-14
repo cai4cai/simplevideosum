@@ -1,8 +1,11 @@
 """k-medoids clustering of per-frame signatures, as in the original videosum package.
 
 The frames are compared with ``distances.distance_matrix``. The medoids are initialised with
-k-medoids++ and refined with PAM swaps (FastPAM1 formulation, vectorised, so all the swaps are
-evaluated in O(N^2) per iteration).
+k-medoids++ and refined with PAM swaps, applying the best swap of each iteration (the
+FastPAM1 formulation, evaluated for all the candidates and medoids at once). The charge of each
+point to its nearest medoid is a dense (candidates x N) @ (N x k) matrix product, so an iteration
+costs O(N^2 k) operations rather than FastPAM1's O(N^2): a scatter-add over the nearest medoids
+does O(N^2) work but was slower than the matmul on MPS in a benchmark (N up to 10,000).
 """
 
 import math

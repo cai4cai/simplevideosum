@@ -1,0 +1,51 @@
+[project]
+name = "simplevideosum"
+readme = "README.md"
+version = "0.1.0"
+description = "A simple video summarisation project."
+authors = [
+    { name = "Tom Vercauteren", email = "tom.vercauteren@kcl.ac.uk" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "torchcodec>=0.17.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+# PyTorch flavour is chosen with an extra: `uv sync --extra cpu` (CI, macOS, CPU-only machines)
+# or `uv sync --extra cuda` (NVIDIA GPUs; default PyPI wheels on Linux/Windows).
+[project.optional-dependencies]
+cpu = ["torch>=2.14.1", "torchvision>=0.29.1"]
+cuda = ["torch>=2.14.1", "torchvision>=0.29.1"]
+
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

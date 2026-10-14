@@ -11,6 +11,9 @@ import torch
 
 from simplevideosum.distances import distance_matrix
 
+# The (N, N) float32 distance matrix of 20,000 frames takes 1.6 GB, and PAM needs more temporaries.
+MAX_FRAMES = 20_000
+
 
 def kmedoids_pp_init(dist: torch.Tensor, k: int, generator: torch.Generator) -> torch.Tensor:
     """k-medoids++ seeding: medoids are sampled proportionally to their distance to the
@@ -97,6 +100,7 @@ def kmedoids(
     time_smoothing: float = 0.0,
     seed: int = 0,
     metric: str = "l2sq",
+    max_frames: int = MAX_FRAMES,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Cluster the frames into ``k`` clusters around medoid frames.
 
@@ -106,7 +110,8 @@ def kmedoids(
 
     Returns ``(indices, labels)`` on that device: the (k,) medoid frame indices sorted in time,
     and for every frame the position in ``indices`` of the medoid of its cluster. Clusters are
-    not necessarily contiguous in time (unless ``time_smoothing`` is 1).
+    not necessarily contiguous in time (unless ``time_smoothing`` is 1). More than ``max_frames``
+    frames are refused, as the (N, N) distance matrix would not fit in memory.
     """
     signatures = torch.as_tensor(signatures)
     n = len(signatures)
@@ -115,7 +120,14 @@ def kmedoids(
     if n <= k:  # nothing to cluster: every frame is its own cluster
         every = torch.arange(n, device=signatures.device)
         return every, every.clone()
+    if n > max_frames:
+        raise ValueError(
+            f"k-medoids compares all the pairs of frames: {n} frames is more than the "
+            f"{max_frames} supported"
+        )
     dist = distance_matrix(signatures, time_smoothing, metric)
     generator = torch.Generator(device=dist.device).manual_seed(seed)
     medoids = pam(dist, kmedoids_pp_init(dist, k, generator)).sort().values
-    return medoids, dist[:, medoids].argmin(dim=1)
+    labels = dist[:, medoids].argmin(dim=1)
+    labels[medoids] = torch.arange(k, device=labels.device)  # identical frames can tie
+    return medoids, labels

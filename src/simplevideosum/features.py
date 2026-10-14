@@ -1,15 +1,17 @@
 """Per-frame signatures: a pre-trained backbone, then an aggregation and a normalisation."""
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torchvision import models
 
 from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
 from simplevideosum.device import get_device
-from simplevideosum.io import VideoReader
+
+if TYPE_CHECKING:  # TorchCodec is slow to import, and only the type is needed here
+    from simplevideosum.io import VideoReader
 
 INPUT_SIZE = 299
 SIGNATURE_DIM = 2048
@@ -34,6 +36,8 @@ class InceptionMaps(nn.Module):
 
 
 def build_inception_v3(pretrained: bool) -> nn.Module:
+    from torchvision import models  # deferred: importing torchvision is slow (see run.py)
+
     if pretrained:
         model = models.inception_v3(
             weights=models.Inception_V3_Weights.IMAGENET1K_V1, progress=True
@@ -103,13 +107,16 @@ def extract_features(model: nn.Module, frames: torch.Tensor) -> torch.Tensor:
 
 
 def compute_signatures(
-    reader: VideoReader, indices: list[int], model: nn.Module, batch_size: int = 32
+    reader: "VideoReader", indices: list[int], model: nn.Module, batch_size: int = 32
 ) -> torch.Tensor:
     """Signatures (len(indices), D) of the given video frames, decoded batch by batch."""
     if batch_size < 1:
         raise ValueError("batch_size must be >= 1")
-    batches = [
-        extract_features(model, reader.read(indices[i : i + batch_size]))
-        for i in range(0, len(indices), batch_size)
-    ]
-    return torch.cat(batches) if batches else torch.empty(0, SIGNATURE_DIM)
+    if not indices:
+        raise ValueError("indices must not be empty")
+    return torch.cat(
+        [
+            extract_features(model, reader.read(indices[i : i + batch_size]))
+            for i in range(0, len(indices), batch_size)
+        ]
+    )

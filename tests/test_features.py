@@ -42,6 +42,8 @@ def test_compute_signatures_batches_consistently(model, video_path):
     assert torch.allclose(batched, single, atol=1e-4)
     with pytest.raises(ValueError):
         compute_signatures(reader, indices, model, batch_size=0)
+    with pytest.raises(ValueError, match="empty"):
+        compute_signatures(reader, [], model)
 
 
 def test_scda_signatures_concatenate_the_normalised_pooled_descriptors():

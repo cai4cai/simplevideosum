@@ -1,5 +1,6 @@
 """Video to storyboard summarisation."""
 
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from simplevideosum.algorithms import resolve
 from simplevideosum.collage import Layout, make_collage, make_segbar
 from simplevideosum.features import build_feature_extractor, compute_signatures
 from simplevideosum.io import VideoReader
+
+logger = logging.getLogger(__name__)
 
 
 class VideoSummarizer:
@@ -56,7 +59,7 @@ class VideoSummarizer:
             given = {"fps": fps, "clustering": clustering, **components}
             ignored = [f"--{name}" for name, value in given.items() if value]
             if ignored:
-                print(f"[WARN] The '{algo}' algorithm ignores {' and '.join(ignored)}.")
+                logger.warning("The '%s' algorithm ignores %s.", algo, " and ".join(ignored))
         self.time_segmentation = time_segmentation
         self.segbar_height = segbar_height
         self.feature_extractor = feature_extractor
@@ -68,6 +71,13 @@ class VideoSummarizer:
             candidates = range(reader.num_frames)
             return (candidates, *self.algorithm.select(len(candidates), self.n_frames))
         candidates = reader.sampled_indices(self.fps)
+        limit = self.clustering.max_frames
+        if limit is not None and len(candidates) > limit:  # fail before the costly signatures
+            raise ValueError(
+                f"the '{self.algorithm.clustering}' clustering supports at most {limit} frames "
+                f"but the video has {len(candidates)} to compare: lower --fps "
+                "or use the 'dissection' clustering"
+            )
         if self.feature_extractor is None:
             self.feature_extractor = build_feature_extractor(
                 backbone=self.algorithm.backbone,
@@ -87,7 +97,9 @@ class VideoSummarizer:
         reader = VideoReader(video_path)
         candidates, indices, labels = self._select(reader)
         if len(indices) < self.n_frames:
-            print(f"[WARN] Only {len(indices)} of the {self.n_frames} requested frames available.")
+            logger.warning(
+                "Only %d of the %d requested frames available.", len(indices), self.n_frames
+            )
 
         frames = reader.read([candidates[i] for i in indices.tolist()])
         collage = make_collage(frames, self.layout)

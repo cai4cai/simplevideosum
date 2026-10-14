@@ -1,6 +1,5 @@
 """Video reading built on TorchCodec."""
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import torch
@@ -25,17 +24,17 @@ class VideoReader:
 
     @property
     def fps(self) -> float:
-        return self._decoder.metadata.average_fps
+        """Average frame rate; some containers do not store it, so fall back on the duration."""
+        meta = self._decoder.metadata
+        if meta.average_fps:
+            return meta.average_fps
+        if meta.duration_seconds:
+            return self.num_frames / meta.duration_seconds
+        raise ValueError(f"cannot determine the frame rate of {self.path}")
 
     @property
     def duration(self) -> float:
         return self._decoder.metadata.duration_seconds
-
-    @property
-    def frame_size(self) -> tuple[int, int]:
-        """(height, width) of the decoded frames."""
-        meta = self._decoder.metadata
-        return meta.height, meta.width
 
     def sampled_indices(self, fps: float | None = None) -> list[int]:
         """Frame indices of the video resampled at ``fps`` (all frames if None or >= native)."""
@@ -50,19 +49,3 @@ class VideoReader:
     def read(self, indices: list[int]) -> torch.Tensor:
         """Return the frames at ``indices`` as a (len(indices), 3, H, W) uint8 tensor."""
         return self._decoder.get_frames_at(indices).data
-
-    def sample(self, n: int) -> torch.Tensor:
-        """Return ``n`` frames spread uniformly over the video."""
-        if n < 1:
-            raise ValueError("n must be >= 1")
-        n = min(n, self.num_frames)
-        indices = torch.linspace(0, self.num_frames - 1, n).round().long().tolist()
-        return self.read(indices)
-
-    def batches(self, batch_size: int, stride: int = 1) -> Iterator[torch.Tensor]:
-        """Yield every ``stride``-th frame in batches of up to ``batch_size``."""
-        if batch_size < 1 or stride < 1:
-            raise ValueError("batch_size and stride must be >= 1")
-        indices = list(range(0, self.num_frames, stride))
-        for i in range(0, len(indices), batch_size):
-            yield self.read(indices[i : i + batch_size])

@@ -1,6 +1,9 @@
 """Command line interface: summarise a video into a storyboard image.
 
 Run with ``simplevideosum --help`` or ``python -m simplevideosum.run --help``.
+
+TorchCodec and torchvision take a couple of seconds to import, so they are only imported once the
+arguments have been validated, which keeps ``--help`` and usage errors fast.
 """
 
 import argparse
@@ -11,10 +14,14 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import torch
-from torchcodec.encoders import JpegEncoder, PngEncoder
 
-from simplevideosum.algorithms import ALGORITHMS, COMPONENTS, DEFAULT_CLUSTERING, resolve
-from simplevideosum.summarizer import VideoSummarizer
+from simplevideosum.algorithms import (
+    ALGORITHMS,
+    COMPONENTS,
+    DEFAULT_CLUSTERING,
+    PIPELINE_COMPONENTS,
+    resolve,
+)
 
 EXAMPLE = "simplevideosum -i video.mp4 -o storyboard.jpg -n 16 -x 1920 -y 1080 -a time -t 1"
 
@@ -80,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     optional.add_argument(
         "-t", "--time-segmentation", nargs="?", const=1, default=0, type=int, help=HELP["-t"]
     )
-    for name in ("backbone", "aggregation", "normalisation", "distance"):
+    for name in PIPELINE_COMPONENTS:
         optional.add_argument(f"--{name}", default=None, type=str, help=HELP[f"--{name}"])
     optional.add_argument("-c", "--clustering", default=None, type=str, help=HELP["-c"])
     optional.add_argument("-s", "--time-smoothing", default=0.0, type=float, help=HELP["-s"])
@@ -91,10 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def components(args: argparse.Namespace) -> dict[str, str | None]:
     """The component overrides given on the command line."""
-    return {
-        name: getattr(args, name)
-        for name in ("backbone", "aggregation", "normalisation", "distance")
-    }
+    return {name: getattr(args, name) for name in PIPELINE_COMPONENTS}
 
 
 def validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
@@ -118,6 +122,8 @@ def validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
 
 def save_image(image: torch.Tensor, path: Path) -> None:
     """Write a (3, H, W) uint8 RGB tensor as JPEG (quality 100) or PNG, chosen by extension."""
+    from torchcodec.encoders import JpegEncoder, PngEncoder
+
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.suffix.lower() == ".png":
         PngEncoder(image).to_file(path)
@@ -136,6 +142,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO, format="[%(levelname)s] %(message)s", handlers=handlers, force=True
     )
+
+    from simplevideosum.summarizer import VideoSummarizer
 
     summarizer = VideoSummarizer(
         args.algo,

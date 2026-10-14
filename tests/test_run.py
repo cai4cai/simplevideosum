@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 import pytest
 from torchcodec.decoders import decode_image as read_image
 
@@ -84,3 +87,18 @@ def test_existing_output_is_refused(video_path, tmp_path, capsys):
     with pytest.raises(SystemExit):
         main(args(video_path, output))
     assert "already exists" in capsys.readouterr().err
+
+
+def test_warnings_reach_the_log_file(video_path, tmp_path):
+    log = tmp_path / "run.log"
+    main(args(video_path, tmp_path / "story.jpg", "-f", "2", "-l", str(log)))
+    assert "ignores --fps" in log.read_text()
+
+
+def test_usage_does_not_import_the_slow_libraries():
+    code = (
+        "import sys, simplevideosum.run;"
+        "print('torchcodec' in sys.modules, 'torchvision' in sys.modules)"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.split() == ["False", "False"]

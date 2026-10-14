@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 import torch
 
@@ -12,7 +14,6 @@ def reader(video_path):
 
 def test_metadata(reader):
     assert reader.num_frames == 3827
-    assert reader.frame_size == (480, 640)
     assert reader.fps == pytest.approx(29.97, abs=0.01)
     assert reader.duration == pytest.approx(127.69, abs=0.01)
 
@@ -23,22 +24,31 @@ def test_read_returns_uint8_nchw(reader):
     assert frames.dtype == torch.uint8
 
 
-def test_sample_is_uniform_and_clamped(reader):
-    assert reader.sample(8).shape[0] == 8
-    assert reader.sample(10**6).shape[0] == reader.num_frames
+class FakeDecoder:
+    """Stands in for a TorchCodec decoder with 100 frames and the given metadata."""
+
+    def __init__(self, **metadata):
+        self.metadata = SimpleNamespace(**metadata)
+
+    def __len__(self):
+        return 100
 
 
-def test_batches_cover_strided_frames(reader):
-    sizes = [b.shape[0] for b in reader.batches(batch_size=16, stride=500)]
-    assert sum(sizes) == len(range(0, reader.num_frames, 500))
-    assert max(sizes) <= 16
+def fake_reader(reader, **metadata):
+    reader._decoder = FakeDecoder(**metadata)
+    return reader
 
 
-def test_invalid_arguments(reader):
-    with pytest.raises(ValueError):
-        reader.sample(0)
-    with pytest.raises(ValueError):
-        next(reader.batches(0))
+def test_fps_falls_back_on_the_duration(video_path):
+    reader = fake_reader(VideoReader(video_path), average_fps=None, duration_seconds=4.0)
+    assert reader.fps == 25.0
+    assert reader.sampled_indices(5) == list(range(0, 100, 5))
+
+
+def test_unknown_frame_rate_is_an_error(video_path):
+    reader = fake_reader(VideoReader(video_path), average_fps=None, duration_seconds=None)
+    with pytest.raises(ValueError, match="frame rate"):
+        reader.fps  # noqa: B018
 
 
 def test_missing_file(tmp_path):
@@ -48,5 +58,5 @@ def test_missing_file(tmp_path):
 
 def test_frames_feed_feature_extractor(reader):
     model = build_feature_extractor(pretrained=False, device="cpu")
-    feats = extract_features(model, reader.sample(4))
+    feats = extract_features(model, reader.read([0, 500, 1000, 1500]))
     assert feats.shape == (4, 2048)

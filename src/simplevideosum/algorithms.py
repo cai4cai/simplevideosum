@@ -12,7 +12,7 @@ import torch
 from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
 from simplevideosum.distances import DISTANCES
 from simplevideosum.features import BACKBONES
-from simplevideosum.kmedoids import kmedoids
+from simplevideosum.kmedoids import MAX_FRAMES, kmedoids
 from simplevideosum.segmentation import dissect, is_power_of_two
 
 Selection = tuple[torch.Tensor, torch.Tensor]
@@ -69,11 +69,12 @@ class Clustering:
     validate: Callable[[int], None] = lambda n_key_frames: None
     supports_time_smoothing: bool = False
     distances: tuple[str, ...] = DISTANCES
+    max_frames: int | None = None  # None: no limit on the number of frames
 
 
 # Clustering methods for the algorithms with signatures (--clustering).
 CLUSTERINGS: dict[str, Clustering] = {
-    "kmedoids": Clustering(select_kmedoids, supports_time_smoothing=True),
+    "kmedoids": Clustering(select_kmedoids, supports_time_smoothing=True, max_frames=MAX_FRAMES),
     "dissection": Clustering(select_segments, validate=require_power_of_two, distances=("l2sq",)),
 }
 DEFAULT_CLUSTERING = "kmedoids"
@@ -111,6 +112,9 @@ COMPONENTS: dict[str, tuple[str, ...]] = {
     "distance": DISTANCES,
     "clustering": tuple(CLUSTERINGS),
 }
+
+# The components of the signatures and their comparison, which have an option of their own.
+PIPELINE_COMPONENTS = tuple(name for name in COMPONENTS if name != "clustering")
 
 # Algorithms available from the command line (-a): named configurations of the components.
 ALGORITHMS: dict[str, Algorithm] = {

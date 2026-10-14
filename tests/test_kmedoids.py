@@ -119,3 +119,16 @@ def test_clustering_runs_on_the_device_of_the_signatures():
     indices, labels = indices.cpu().numpy(), labels.cpu().numpy()
     assert sorted(set(labels[indices])) == [0, 1, 2]
     assert [len(set(truth[labels == k])) for k in range(3)] == [1, 1, 1]  # pure clusters
+
+
+def test_identical_frames_do_not_steal_the_label_of_their_medoid():
+    x = np.repeat(np.array([[0.0, 0.0], [10.0, 0.0]]), 4, axis=0)  # two distinct signatures
+    indices, labels = cluster(x, 3)  # k exceeds the number of distinct signatures
+    assert labels[indices].tolist() == [0, 1, 2]
+    assert sorted(set(labels.tolist())) == [0, 1, 2]
+
+
+def test_too_many_frames_are_refused_before_allocating_the_distances():
+    with pytest.raises(ValueError, match="more than the 10 supported"):
+        kmedoids(np.zeros((11, 2)), 3, max_frames=10)
+    kmedoids(np.random.default_rng(0).normal(size=(10, 2)), 3, max_frames=10)

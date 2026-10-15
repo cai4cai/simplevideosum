@@ -76,6 +76,8 @@ def dissect(
 
 # Rows of the cost matrix combined at once by the dynamic programme: bounds its temporary memory.
 _ROW_CHUNK = 1024
+# Bytes of the differences between prefix sums held at once when building the cost matrix.
+_COST_CHUNK_BYTES = 256 << 20
 
 
 def fisher_segments(
@@ -86,7 +88,8 @@ def fisher_segments(
     Fisher's exact 1-D segmentation (Bellman's dynamic programme): ``F[j][e]``, the least cost
     of splitting the first ``e`` frames into ``j`` segments, is ``min_s F[j-1][s] + cost(s, e)``.
     The segments can have any length and ``n_segments`` any value. The (N + 1) x (N + 1) cost
-    matrix is held on the device, so the memory grows as N^2 and the time as n_segments * N^2.
+    matrix is held on the device, so the memory grows as N^2 (and the time as n_segments * N^2,
+    plus N^2 * D to build the matrix).
     Returns the ``n_segments + 1`` boundaries ``b`` on that device: segment ``k`` is
     ``[b[k], b[k + 1])``.
     """
@@ -100,14 +103,19 @@ def fisher_segments(
     device = stats.sums.device
     inf = torch.tensor(float("inf"), dtype=dtype, device=device)
 
-    # cost[s, e] for s < e: energy - ||sum||^2 / length. The pairwise distances between prefix
-    # sums are computed from the differences, as an expansion of the square loses precision.
+    # cost[s, e] for s < e: energy - ||sum||^2 / length. The differences between prefix sums are
+    # taken explicitly, as an expansion of the square loses precision, a block of rows at a time,
+    # as all of them together would be N x N x D numbers.
     positions = torch.arange(n_frames + 1, device=device)
-    span = positions[None, :] - positions[:, None]
-    sums_sq = torch.cdist(stats.sums, stats.sums, compute_mode="donot_use_mm_for_euclid_dist") ** 2
-    cost = stats.squares[None, :] - stats.squares[:, None] - sums_sq / span.clamp(min=1)
-    cost = torch.where(span > 0, cost.clamp(min=0), inf)
-    del span, sums_sq
+    cost = torch.empty(n_frames + 1, n_frames + 1, dtype=dtype, device=device)
+    block = max(1, _COST_CHUNK_BYTES // (cost.shape[1] * stats.sums.shape[1] * cost.element_size()))
+    for start in range(0, n_frames + 1, block):
+        rows = slice(start, start + block)
+        differences = stats.sums[None, :, :] - stats.sums[rows, None, :]  # (rows, N + 1, D)
+        span = positions[None, :] - positions[rows, None]
+        block_cost = stats.squares[None, :] - stats.squares[rows, None]
+        block_cost = block_cost - (differences * differences).sum(dim=-1) / span.clamp(min=1)
+        cost[rows] = torch.where(span > 0, block_cost.clamp(min=0), inf)
 
     best = torch.where(positions == 0, 0.0, float("inf")).to(dtype)  # F[0]
     origins = []

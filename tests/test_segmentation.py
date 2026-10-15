@@ -133,6 +133,13 @@ def test_fisher_is_independent_of_the_row_chunk(monkeypatch):
     assert fisher_segments(x, 4).tolist() == expected
 
 
+def test_fisher_is_independent_of_the_blocks_of_the_cost_matrix(monkeypatch):
+    x = np.random.default_rng(15).normal(size=(40, 6))
+    expected = fisher_segments(x, 5).tolist()
+    monkeypatch.setattr("simplevideosum.segmentation._COST_CHUNK_BYTES", 1)  # one row at a time
+    assert fisher_segments(x, 5).tolist() == expected
+
+
 def test_fisher_validation():
     x = np.zeros((10, 2))
     with pytest.raises(ValueError, match=">= 1"):

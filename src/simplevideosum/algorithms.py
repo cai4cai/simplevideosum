@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 import torch
 
 from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
-from simplevideosum.backbones import ALIAS_NAMES, validate_backbone
+from simplevideosum.backbones import ALIAS_NAMES, DEFAULT_BACKBONE, validate_backbone
 from simplevideosum.distances import DISTANCES
 from simplevideosum.kmedoids import MAX_FRAMES, kmedoids
 from simplevideosum.segmentation import dissect, fisher_segments, is_power_of_two
@@ -112,7 +112,7 @@ class Algorithm:
     """
 
     select: Callable[[int, int], Selection] | None = None
-    backbone: str = "inceptionv3"
+    backbone: str = DEFAULT_BACKBONE
     aggregation: str = "avgpool"
     normalisation: str = "none"
     distance: str = "l2sq"
@@ -139,7 +139,8 @@ PIPELINE_COMPONENTS = tuple(name for name in COMPONENTS if name != "clustering")
 ALGORITHMS: dict[str, Algorithm] = {
     # evenly spaced frames, no features
     "time": Algorithm(select=select_time),
-    # videosum "inception": globally pooled activations, k-medoids on squared L2 distances
+    # videosum "inception": globally pooled activations (of the default backbone, InceptionV3 in
+    # videosum), k-medoids on squared L2 distances
     "videosum_inception": Algorithm(),
     # videosum "scda": SCDA (Wei et al., 2017), k-medoids on cosine distances. Unlike the paper,
     # the holes of the selection mask are filled and the pooled descriptors are not L2-normalised

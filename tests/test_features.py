@@ -9,8 +9,8 @@ from simplevideosum.features import (
 )
 from simplevideosum.io import VideoReader
 
-SIGNATURE_DIM = 2048  # InceptionV3, the default backbone
-FEATURE_MAP_SIZE = 8
+SIGNATURE_DIM = 960  # MobileNetV3-Large, the default backbone
+FEATURE_MAP_SIZE = 7
 
 
 @pytest.fixture(scope="module")
@@ -19,8 +19,8 @@ def model():
 
 
 def test_preprocess_resizes_and_normalises():
-    out = preprocess(torch.full((2, 3, 100, 200), 255, dtype=torch.uint8))
-    assert out.shape == (2, 3, 299, 299)
+    out = preprocess(torch.full((2, 3, 100, 200), 255, dtype=torch.uint8), 224)
+    assert out.shape == (2, 3, 224, 224)
     assert out[0, 0, 0, 0] == pytest.approx((1 - 0.485) / 0.229, abs=1e-4)
 
 
@@ -60,7 +60,7 @@ def test_scda_signatures_concatenate_the_normalised_pooled_descriptors():
 
 def test_default_signature_is_the_global_average_of_the_maps(model):
     frames = torch.randint(0, 255, (2, 3, 64, 64), dtype=torch.uint8)
-    maps = model[0](preprocess(frames))
+    maps = model[0](preprocess(frames, 224))
     assert maps.shape == (2, SIGNATURE_DIM, FEATURE_MAP_SIZE, FEATURE_MAP_SIZE)
     assert torch.allclose(extract_features(model, frames), maps.mean(dim=(2, 3)), atol=1e-5)
 
@@ -83,3 +83,4 @@ def test_scda_aggregation_variants():
         "scda_thresh": (False, False),  # no morphology
         "scda_fill": (True, True),  # videosum
     }
+

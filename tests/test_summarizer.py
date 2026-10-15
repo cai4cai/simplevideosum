@@ -110,8 +110,14 @@ def test_time_algorithm_warns_about_ignored_options(caplog):
     assert "ignores --fps and --clustering and --distance" in caplog.text
 
 
-def test_pretrained_inception_end_to_end(video_path):
-    storyboard = VideoSummarizer("videosum_inception", 16, 640, 360, fps=0.5).summarize(video_path)
+def test_pretrained_default_backbone_end_to_end(video_path, tmp_path):
+    original_dir = torch.hub.get_dir()
+    torch.hub.set_dir(str(tmp_path))  # the weights are downloaded here, and go with the test
+    try:
+        summarizer = VideoSummarizer("videosum_inception", 16, 640, 360, fps=0.5)
+        storyboard = summarizer.summarize(video_path)
+    finally:
+        torch.hub.set_dir(original_dir)
     assert tuple(storyboard.shape) == (3, 360, 640)
 
 

@@ -11,7 +11,8 @@ PyTorch tensors, and only the selected key frames are decoded.
 Frame selection is made of explicit components, like in the original package but unpacked:
 
 1. **backbone** (`--backbone`): the network giving convolutional activations. Either
-   `inceptionv3` (the default; 299 px input, 2048 channels, 8x8 map), `dinov2_vits14` (DINOv2
+   `mobilenet` (the default: `MobileNet_V3_Large_Weights.DEFAULT`, 224 px input, 960 channels, 7x7
+   map, 5M parameters), `inceptionv3` (299 px, 2048 channels, 8x8 map), `dinov2_vits14` (DINOv2
    ViT-S/14 through `torch.hub`; 224 px, 384 channels, a 16x16 map of patch tokens, 22M parameters),
    or any torchvision classification model: its weights, e.g.
    `MobileNet_V3_Large_Weights.IMAGENET1K_V2` or `EfficientNet_B3_Weights.IMAGENET1K_V1` (see the
@@ -21,8 +22,8 @@ Frame selection is made of explicit components, like in the original package but
    resized and normalised as the weights require. The vision transformers (`vit_*`) and SqueezeNet
    are not supported, and DenseNet maps are taken before its last ReLU.
 2. **aggregation** (`--aggregation`): how the activations are pooled into one or more descriptors
-   per frame: `avgpool` (global average pooling, 2048-d for InceptionV3), `scda` (Selective
-   Convolutional Descriptor Aggregation, average and max pooled, 2 x 2048-d), `scda_thresh`
+   per frame: `avgpool` (global average pooling, 960-d for the default backbone), `scda` (Selective
+   Convolutional Descriptor Aggregation, average and max pooled, 2 x 960-d), `scda_thresh`
    (`scda` keeping every position above the threshold, with no morphology) or `scda_fill` (`scda`
    with the holes of the object mask filled, as in videosum).
 3. **normalisation** (`--normalisation`): applied to each pooled descriptor before they are
@@ -41,7 +42,7 @@ the one of the algorithm:
 | `videosum_inception` | `avgpool` | `none` | `l2sq` | `kmedoids` |
 | `videosum_scda` | `scda_fill` | `none` | `cosine` | `kmedoids` |
 
-All use the `inceptionv3` backbone unless `--backbone` says otherwise. `videosum_scda` follows the videosum package, which departs
+All use the default `mobilenet` backbone unless `--backbone` says otherwise (the videosum package uses `inceptionv3`). `videosum_scda` follows the videosum package, which departs
 from Wei et al. (2017) in two ways: it fills the holes of the object mask, and it does not
 L2-normalise the pooled descriptors before the cosine distance. The paper's version is
 `-a videosum_scda --aggregation scda --normalisation l2`.
@@ -58,14 +59,16 @@ uv sync --extra cuda   # NVIDIA GPUs (default PyPI CUDA wheels)
 TorchCodec also needs the FFmpeg shared libraries (`brew install ffmpeg` / `apt install ffmpeg`).
 
 The algorithms with signatures use pre-trained weights, downloaded on first use (about 100 MB for
-the default InceptionV3, 85 MB for DINOv2, 10-300 MB for the torchvision models) with a progress
+the default MobileNetV3-Large, 109 MB for InceptionV3, 85 MB for DINOv2, 10-300 MB for the
+other torchvision models) with a progress
 bar on stderr, and cached in `~/.cache/torch/hub/checkpoints`; later runs reuse the cached file.
 Delete the files you no longer need from that folder. DINOv2 is loaded through `torch.hub` from
 the authors' repository, so its first use also downloads their code from GitHub
 (`facebookresearch/dinov2`, main branch, trusted by the `trust_repo` flag) to `~/.cache/torch/hub`.
 The network runs on CUDA, then MPS, then CPU, whichever is available first.
 
-The tests use random weights and download nothing, except the ones that need the real InceptionV3.
+The tests use random weights and download nothing, except one end-to-end test that downloads the
+default weights (21 MB) into a temporary directory that goes with the test.
 `uv run pytest --pretrained-backbones` also checks a short list of backbones with their real
 weights (about 500 MB), one at a time in a temporary directory that is emptied after each, so the
 torch cache stays untouched; `--backbones-filter NAME` restricts it.
@@ -137,8 +140,8 @@ The input must be a single video file for now.
   The greedy bisection can only produce balanced hierarchies, so on the demo video it spends half
   of the segments on the first 17 seconds. It is kept as an experiment, `kmedoids` is the baseline.
 - **`scda` aggregation**: Selective Convolutional Descriptor Aggregation (Wei et al., 2017) of the
-  8x8x2048 activations of InceptionV3's last convolutional block. The activations are summed over
-  channels, the positions above the mean form a mask, and only its largest 8-connected component
+  activations of the last convolutional block of the backbone (7x7x960 for the default one). The
+  activations are summed over channels, the positions above the mean form a mask, and only its largest 8-connected component
   is kept. The descriptors at those positions are average- and max-pooled, so the signature mostly
   describes the main object rather than the background. The selection runs batched on the device
   (CPU, CUDA or MPS) with the pure PyTorch morphology of `simplevideosum.morphology`: components

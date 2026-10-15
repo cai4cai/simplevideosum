@@ -6,6 +6,7 @@ from torch import nn
 
 from simplevideosum.backbones import (
     ALIAS_NAMES,
+    DEFAULT_BACKBONE,
     DINOV2,
     build_backbone,
     torchvision_weights,
@@ -38,7 +39,9 @@ def test_specs_designate_torchvision_weights():
         torchvision_weights("mobilenet_v3_large")[1]
         is torchvision_weights("MobileNet_V3_Large_Weights.DEFAULT")[1]
     )
-    assert torchvision_weights("inceptionv3")[0] == "inception_v3"  # an alias
+    assert torchvision_weights("inceptionv3")[0] == "inception_v3"  # aliases
+    assert torchvision_weights("mobilenet") == torchvision_weights("mobilenet_v3_large")
+    assert DEFAULT_BACKBONE == "mobilenet"
 
 
 def test_unknown_specs_are_rejected_with_suggestions():
@@ -142,7 +145,8 @@ def test_dinov2_is_loaded_through_torch_hub_and_gives_a_map_of_patch_tokens(monk
 # The backbones we care about, checked with their real weights by the manual test below (about
 # 500 MB in total, the largest being the 109 MB of InceptionV3 and ConvNeXt-Tiny).
 CURATED_BACKBONES = [
-    "inceptionv3",  # the default
+    "mobilenet",  # the default
+    "inceptionv3",
     DINOV2,
     "MobileNet_V3_Small_Weights.IMAGENET1K_V1",
     "MobileNet_V3_Large_Weights.IMAGENET1K_V2",

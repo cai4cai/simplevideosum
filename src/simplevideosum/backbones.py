@@ -2,8 +2,8 @@
 
 A backbone is named on the command line (``--backbone``) by one of:
 
-* an alias: ``inceptionv3`` (the default) or ``dinov2_vits14`` (DINOv2 ViT-S/14, through
-  ``torch.hub``);
+* an alias: ``mobilenet`` (the default, MobileNetV3-Large), ``inceptionv3`` or ``dinov2_vits14``
+  (DINOv2 ViT-S/14, through ``torch.hub``);
 * the weights of any torchvision classification model, such as
   ``MobileNet_V3_Large_Weights.IMAGENET1K_V2`` (the table of weights of the torchvision
   documentation; ``.DEFAULT`` is the best weights of a model);
@@ -32,7 +32,11 @@ DINOV2_INPUT_SIZE = 224  # a multiple of the patch size 14: a 16 x 16 grid of pa
 DINOV2_PATCH_SIZE = 14
 
 # Short names of weights.
-ALIASES = {"inceptionv3": "Inception_V3_Weights.IMAGENET1K_V1"}
+ALIASES = {
+    "mobilenet": "MobileNet_V3_Large_Weights.DEFAULT",
+    "inceptionv3": "Inception_V3_Weights.IMAGENET1K_V1",
+}
+DEFAULT_BACKBONE = "mobilenet"
 ALIAS_NAMES = (*ALIASES, DINOV2)
 EXAMPLE = "MobileNet_V3_Large_Weights.IMAGENET1K_V2"
 UNSUPPORTED_MODELS = ("vit_", "squeezenet")  # prefixes of the names of the models

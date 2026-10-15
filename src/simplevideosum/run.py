@@ -35,8 +35,8 @@ HELP = {
     "Available: "
     + ", ".join(ALGORITHMS)
     + ". time picks evenly spaced frames (no feature extraction, ignores the components), "
-    "videosum_inception is the globally pooled InceptionV3 activations compared with squared L2, "
-    "videosum_scda is SCDA (Wei et al., 2017) compared with the cosine distance, as in the "
+    "videosum_inception is the globally pooled activations of the backbone compared with squared "
+    "L2, videosum_scda is SCDA (Wei et al., 2017) compared with the cosine distance, as in the "
     "videosum package.",
     "--backbone": "Network producing the convolutional activations; overrides the algorithm's. "
     "Available: " + ", ".join(COMPONENTS["backbone"]) + ", the name of a torchvision "

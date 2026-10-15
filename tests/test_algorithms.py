@@ -46,7 +46,7 @@ def test_registry_contains_time():
 
     default = ALGORITHMS["videosum_inception"]
     assert (default.backbone, default.aggregation, default.normalisation, default.distance) == (
-        "inceptionv3", "avgpool", "none", "l2sq")  # fmt: skip
+        "mobilenet", "avgpool", "none", "l2sq")  # fmt: skip
     assert default.clustering == DEFAULT_CLUSTERING
 
 
@@ -57,7 +57,7 @@ def test_videosum_scda_preset():
         "none",
         "cosine",
     )
-    assert (preset.backbone, preset.clustering) == ("inceptionv3", "kmedoids")
+    assert (preset.backbone, preset.clustering) == ("mobilenet", "kmedoids")
     assert "scda" not in ALGORITHMS and "inception" not in ALGORITHMS
 
 

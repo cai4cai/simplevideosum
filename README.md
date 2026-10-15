@@ -10,7 +10,10 @@ PyTorch tensors, and only the selected key frames are decoded.
 
 Frame selection is made of explicit components, like in the original package but unpacked:
 
-1. **backbone** (`--backbone`): the network giving convolutional activations: `inceptionv3`.
+1. **backbone** (`--backbone`): the network giving convolutional activations:
+   `inceptionv3` (299 px input, 2048 channels, 8x8 map), `convnext_tiny` (224 px, 768 channels,
+   7x7, 28M parameters) or `dinov2_vits14` (DINOv2 ViT-S/14, 224 px, 384 channels, a 16x16 map of
+   patch tokens, 22M parameters).
 2. **aggregation** (`--aggregation`): how the activations are pooled into one or more descriptors
    per frame: `avgpool` (global average pooling, 2048-d for InceptionV3), `scda` (Selective
    Convolutional Descriptor Aggregation, average and max pooled, 2 x 2048-d), `scda_thresh`
@@ -32,7 +35,7 @@ the one of the algorithm:
 | `videosum_inception` | `avgpool` | `none` | `l2sq` | `kmedoids` |
 | `videosum_scda` | `scda_fill` | `none` | `cosine` | `kmedoids` |
 
-All use the `inceptionv3` backbone. `videosum_scda` follows the videosum package, which departs
+All use the `inceptionv3` backbone unless `--backbone` says otherwise. `videosum_scda` follows the videosum package, which departs
 from Wei et al. (2017) in two ways: it fills the holes of the object mask, and it does not
 L2-normalise the pooled descriptors before the cosine distance. The paper's version is
 `-a videosum_scda --aggregation scda --normalisation l2`.
@@ -48,9 +51,13 @@ uv sync --extra cuda   # NVIDIA GPUs (default PyPI CUDA wheels)
 
 TorchCodec also needs the FFmpeg shared libraries (`brew install ffmpeg` / `apt install ffmpeg`).
 
-The algorithms with signatures use the pre-trained InceptionV3 ImageNet weights. torchvision
-downloads them on first use (about 100 MB, with a progress bar on stderr) and caches them in
-`~/.cache/torch/hub/checkpoints`; later runs reuse the cached file. The network runs on CUDA, then
+The algorithms with signatures use pre-trained weights: the ImageNet weights of InceptionV3
+(about 100 MB) and ConvNeXt-Tiny (about 110 MB), which torchvision downloads on first use, and the
+DINOv2 weights (about 85 MB). They are cached, with a progress bar on stderr, in
+`~/.cache/torch/hub/checkpoints`; later runs reuse the cached file. DINOv2 is loaded through
+`torch.hub` from the authors' repository, so its first use also downloads their code from GitHub
+(`facebookresearch/dinov2`, main branch, trusted by the `trust_repo` flag) to
+`~/.cache/torch/hub`. The network runs on CUDA, then
 MPS, then CPU, whichever is available first.
 
 ## Usage

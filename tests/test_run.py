@@ -18,7 +18,7 @@ def test_help_documents_every_option(capsys):
     assert exc.value.code == 0
     out = capsys.readouterr().out
     for option in ("--input", "--output", "--nframes", "--width", "--height", "--algo",
-                   "--time-segmentation", "--clustering", "--backbone", "--aggregation",
+                   "--time-bar-plot", "--clustering", "--backbone", "--aggregation",
                    "--normalisation", "--distance", "--time-smoothing", "--fps", "--log",
                    "example:"):  # fmt: skip
         assert option in out
@@ -31,7 +31,7 @@ def test_main_writes_storyboard(video_path, tmp_path, ext):
     assert tuple(read_image(output).shape) == (3, 360 + 32, 640)
 
 
-def test_bare_time_segmentation_flag_enables_bar(video_path, tmp_path):
+def test_bare_time_bar_plot_flag_enables_bar(video_path, tmp_path):
     output = tmp_path / "story.png"
     main(args(video_path, output, "-t"))
     assert read_image(output).shape[1] == 360 + 32

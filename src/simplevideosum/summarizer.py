@@ -41,7 +41,7 @@ class VideoSummarizer:
         width: int,
         height: int,
         fps: float | None = None,
-        time_segmentation: bool = False,
+        time_bar_plot: bool = False,
         segbar_height: int = 32,
         feature_extractor: nn.Module | None = None,
         clustering: str | None = None,
@@ -69,7 +69,7 @@ class VideoSummarizer:
             ignored = [f"--{name}" for name, value in given.items() if value]
             if ignored:
                 logger.warning("The '%s' algorithm ignores %s.", algo, " and ".join(ignored))
-        self.time_segmentation = time_segmentation
+        self.time_bar_plot = time_bar_plot
         self.segbar_height = segbar_height
         self.feature_extractor = feature_extractor
         self.layout = Layout.fit(n_frames, width, height)
@@ -112,9 +112,9 @@ class VideoSummarizer:
             )
 
         frames = reader.read([candidates[i] for i in indices.tolist()])
-        colours = label_colours(torch.arange(len(indices))) if self.time_segmentation else None
+        colours = label_colours(torch.arange(len(indices))) if self.time_bar_plot else None
         collage = make_collage(frames, self.layout, colours)
-        if self.time_segmentation:
+        if self.time_bar_plot:
             bar = make_segbar(labels, indices, collage.shape[2], self.segbar_height)
             collage = torch.cat([collage, bar], dim=1)
         return collage

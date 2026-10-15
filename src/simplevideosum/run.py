@@ -32,7 +32,7 @@ HELP = {
     "-o": "Path of the output image (.jpg, .jpeg or .png). Must not already exist.",
     "-n": "Number of frames in the collage.",
     "-x": "Width of the collage in pixels.",
-    "-y": "Height of the collage in pixels (the time segmentation bar is added below it).",
+    "-y": "Height of the collage in pixels (the time bar plot is added below it).",
     "-a": "Algorithm for frame selection: a named configuration of the components below. "
     "Available: "
     + ", ".join(ALGORITHMS)
@@ -84,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="simplevideosum",
         description="Summarise a video into a single-image storyboard of key frames.\n\n"
-        "Frames are tiled in a collage of the requested size; with --time-segmentation a "
+        "Frames are tiled in a collage of the requested size; with --time-bar-plot a "
         "colour bar underneath shows which key frame stands for each moment of the video.",
         epilog=f"example:\n  {EXAMPLE}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -98,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     required.add_argument("-y", "--height", required=True, type=int, help=HELP["-y"])
     optional.add_argument("-a", "--algo", default=DEFAULT_ALGORITHM, type=str, help=HELP["-a"])
     optional.add_argument(
-        "-t", "--time-segmentation", nargs="?", const=1, default=0, type=int, help=HELP["-t"]
+        "-t", "--time-bar-plot", nargs="?", const=1, default=0, type=int, help=HELP["-t"]
     )
     for name in PIPELINE_COMPONENTS:
         optional.add_argument(f"--{name}", default=None, type=str, help=HELP[f"--{name}"])
@@ -164,7 +164,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.width,
         args.height,
         fps=args.fps,
-        time_segmentation=bool(args.time_segmentation),
+        time_bar_plot=bool(args.time_bar_plot),
         clustering=args.clustering,
         time_smoothing=args.time_smoothing,
         **components(args),

@@ -10,13 +10,13 @@ from simplevideosum.io import VideoReader
 from simplevideosum.summarizer import VideoSummarizer, chronological
 
 
-def test_storyboard_with_time_segmentation(video_path):
-    summarizer = VideoSummarizer("time", 16, 1920, 1080, time_segmentation=True)
+def test_storyboard_with_time_bar_plot(video_path):
+    summarizer = VideoSummarizer("time", 16, 1920, 1080, time_bar_plot=True)
     storyboard = summarizer.summarize(video_path)
     assert tuple(storyboard.shape) == (3, 1080 + 32, 1920)
 
 
-def test_storyboard_without_time_segmentation(video_path):
+def test_storyboard_without_time_bar_plot(video_path):
     storyboard = VideoSummarizer("time", 16, 960, 540).summarize(video_path)
     assert tuple(storyboard.shape) == (3, 540, 960)
 
@@ -71,7 +71,7 @@ def test_inception_algorithm_uses_fps_and_decodes_candidates_once(
 
     monkeypatch.setattr(VideoReader, "read", spy)
     summarizer = VideoSummarizer(
-        "videosum_inception", 8, 640, 360, fps=0.5, time_segmentation=True,
+        "videosum_inception", 8, 640, 360, fps=0.5, time_bar_plot=True,
         feature_extractor=random_extractor, clustering=clustering,
     )  # fmt: skip
     storyboard = summarizer.summarize(video_path)
@@ -189,13 +189,13 @@ def test_kmedoids_storyboard_is_chronological_with_matching_borders(
 
     monkeypatch.setattr(VideoReader, "read", spy)
     summarizer = VideoSummarizer(
-        "videosum_inception", 6, 640, 360, fps=2, time_segmentation=True,
+        "videosum_inception", 6, 640, 360, fps=2, time_bar_plot=True,
         feature_extractor=random_extractor,
     )  # fmt: skip
     storyboard = summarizer.summarize(video_path)
     assert seen[-1] == sorted(seen[-1])  # the key frames are read, and shown, in time order
     layout = summarizer.layout
-    bar = storyboard[:, -summarizer.segbar_height, :]  # colours of the segmentation bar
+    bar = storyboard[:, -summarizer.segbar_height, :]  # colours of the time bar plot
     for k in range(6):
         row, col = divmod(k, layout.tiles_per_row)
         corner = storyboard[:, row * layout.tile_height, col * layout.tile_width]

@@ -88,7 +88,7 @@ uv run simplevideosum -i tests/data/video.mp4 -o storyboard.jpg \
 ```
 
 The first command writes a 1920x1112 image: a 4x4 grid of 16 frames filling 1920x1080, plus a 32 pixel
-time segmentation bar. `python -m simplevideosum.run` is equivalent. Run
+time bar plot. `python -m simplevideosum.run` is equivalent. Run
 `uv run simplevideosum --help` for the full, self-contained documentation.
 
 | Option | Description |
@@ -97,12 +97,12 @@ time segmentation bar. `python -m simplevideosum.run` is equivalent. Run
 | `-o`, `--output` | Output image (`.jpg`, `.jpeg` or `.png`). It must not already exist. |
 | `-n`, `--nframes` | Number of frames in the collage. |
 | `-x`, `--width` | Width of the collage in pixels. |
-| `-y`, `--height` | Height of the collage in pixels (the time segmentation bar is added below it). |
+| `-y`, `--height` | Height of the collage in pixels (the time bar plot is added below it). |
 | `-a`, `--algo` | Alias for a configuration of the components (table above): `default`, `time`, `videosum_inception` or `videosum_scda`. Default: `default`. |
 | `--backbone`, `--aggregation`, `--normalisation`, `--distance` | Override the corresponding component of the algorithm. |
 | `-c`, `--clustering` | Clustering of the signatures: `kmedoids`, `dissection` (needs a power of 2 for `-n` and the `l2sq` distance) or `fisher` (`l2sq` distance, at most 10,000 sampled frames). Overrides the algorithm's. |
 | `-s`, `--time-smoothing` | In [0, 1]: blends the signature distances with the temporal distance between frames, 1 gives contiguous clusters. `kmedoids` only. Default: 0. |
-| `-t`, `--time-segmentation` | Add the colour bar under the collage and a border of the same colour around each key frame (`1` enables, `0` disables, bare `-t` enables). |
+| `-t`, `--time-bar-plot` | Add the colour bar under the collage and a border of the same colour around each key frame (`1` enables, `0` disables, bare `-t` enables). |
 | `-f`, `--fps` | Sampling frequency in fps: key frames are chosen among the video resampled at this rate. the algorithms with signatures compute a signature for each resampled frame; `time` only needs the video length and ignores it. `0`, or a rate of at least the frame rate of the video, uses every frame. Default: 1 (`time` uses every frame). |
 | `-l`, `--log` | Log file to append to. Default: terminal only. |
 
@@ -157,7 +157,7 @@ The input must be a single video file for now.
 - **`cosine` distance**: one minus the cosine similarity of the signatures, min-max normalised
   (and blended with the temporal distance by `-s`) like `l2sq`. With `l2` normalised pooled
   descriptors it is the mean of the cosine distances of the descriptors.
-- **Time segmentation bar**: each column is coloured by the key frame that is nearest in time
+- **Time bar plot**: each column is coloured by the key frame that is nearest in time
   to it, and black lines mark the key frame positions.
 
 ## Development

@@ -10,10 +10,16 @@ PyTorch tensors, and only the selected key frames are decoded.
 
 Frame selection is made of explicit components, like in the original package but unpacked:
 
-1. **backbone** (`--backbone`): the network giving convolutional activations:
-   `inceptionv3` (299 px input, 2048 channels, 8x8 map), `convnext_tiny` (224 px, 768 channels,
-   7x7, 28M parameters) or `dinov2_vits14` (DINOv2 ViT-S/14, 224 px, 384 channels, a 16x16 map of
-   patch tokens, 22M parameters).
+1. **backbone** (`--backbone`): the network giving convolutional activations. Either
+   `inceptionv3` (the default; 299 px input, 2048 channels, 8x8 map), `dinov2_vits14` (DINOv2
+   ViT-S/14 through `torch.hub`; 224 px, 384 channels, a 16x16 map of patch tokens, 22M parameters),
+   or any torchvision classification model: its weights, e.g.
+   `MobileNet_V3_Large_Weights.IMAGENET1K_V2` or `EfficientNet_B3_Weights.IMAGENET1K_V1` (see the
+   [table of weights](https://docs.pytorch.org/vision/stable/models.html#table-of-all-available-classification-weights);
+   `.DEFAULT` is a model's best), or a model name such as `mobilenet_v3_large` for its default
+   weights. The maps are the last convolutional activations of the model, and the frames are
+   resized and normalised as the weights require. The vision transformers (`vit_*`) and SqueezeNet
+   are not supported, and DenseNet maps are taken before its last ReLU.
 2. **aggregation** (`--aggregation`): how the activations are pooled into one or more descriptors
    per frame: `avgpool` (global average pooling, 2048-d for InceptionV3), `scda` (Selective
    Convolutional Descriptor Aggregation, average and max pooled, 2 x 2048-d), `scda_thresh`
@@ -51,14 +57,18 @@ uv sync --extra cuda   # NVIDIA GPUs (default PyPI CUDA wheels)
 
 TorchCodec also needs the FFmpeg shared libraries (`brew install ffmpeg` / `apt install ffmpeg`).
 
-The algorithms with signatures use pre-trained weights: the ImageNet weights of InceptionV3
-(about 100 MB) and ConvNeXt-Tiny (about 110 MB), which torchvision downloads on first use, and the
-DINOv2 weights (about 85 MB). They are cached, with a progress bar on stderr, in
-`~/.cache/torch/hub/checkpoints`; later runs reuse the cached file. DINOv2 is loaded through
-`torch.hub` from the authors' repository, so its first use also downloads their code from GitHub
-(`facebookresearch/dinov2`, main branch, trusted by the `trust_repo` flag) to
-`~/.cache/torch/hub`. The network runs on CUDA, then
-MPS, then CPU, whichever is available first.
+The algorithms with signatures use pre-trained weights, downloaded on first use (about 100 MB for
+the default InceptionV3, 85 MB for DINOv2, 10-300 MB for the torchvision models) with a progress
+bar on stderr, and cached in `~/.cache/torch/hub/checkpoints`; later runs reuse the cached file.
+Delete the files you no longer need from that folder. DINOv2 is loaded through `torch.hub` from
+the authors' repository, so its first use also downloads their code from GitHub
+(`facebookresearch/dinov2`, main branch, trusted by the `trust_repo` flag) to `~/.cache/torch/hub`.
+The network runs on CUDA, then MPS, then CPU, whichever is available first.
+
+The tests use random weights and download nothing, except the ones that need the real InceptionV3.
+`uv run pytest --pretrained-backbones` also checks a short list of backbones with their real
+weights (about 500 MB), one at a time in a temporary directory that is emptied after each, so the
+torch cache stays untouched; `--backbones-filter NAME` restricts it.
 
 ## Usage
 

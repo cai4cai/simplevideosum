@@ -39,7 +39,11 @@ HELP = {
     "videosum_scda is SCDA (Wei et al., 2017) compared with the cosine distance, as in the "
     "videosum package.",
     "--backbone": "Network producing the convolutional activations; overrides the algorithm's. "
-    "Available: " + ", ".join(COMPONENTS["backbone"]) + ".",
+    "Available: " + ", ".join(COMPONENTS["backbone"]) + ", the name of a torchvision "
+    "classification model (e.g. mobilenet_v3_large, for its default weights), or its weights "
+    "(e.g. MobileNet_V3_Large_Weights.IMAGENET1K_V2; see the table of classification weights in "
+    "the torchvision documentation). The frames are resized and normalised as the weights "
+    "require.",
     "--aggregation": "How the activations are pooled into descriptors; overrides the algorithm's. "
     "Available: avgpool (global average pooling), scda (Selective Convolutional Descriptor "
     "Aggregation: average and max pooling of the descriptors of the largest connected component "

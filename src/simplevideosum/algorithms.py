@@ -10,8 +10,8 @@ from dataclasses import dataclass, replace
 import torch
 
 from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
+from simplevideosum.backbones import ALIAS_NAMES, validate_backbone
 from simplevideosum.distances import DISTANCES
-from simplevideosum.features import BACKBONES
 from simplevideosum.kmedoids import MAX_FRAMES, kmedoids
 from simplevideosum.segmentation import dissect, fisher_segments, is_power_of_two
 
@@ -125,7 +125,7 @@ class Algorithm:
 
 # Choices of every component that can be overridden from the command line (--<name>).
 COMPONENTS: dict[str, tuple[str, ...]] = {
-    "backbone": tuple(BACKBONES),
+    "backbone": ALIAS_NAMES,  # and the weights of any torchvision classification model
     "aggregation": tuple(AGGREGATIONS),
     "normalisation": tuple(NORMALISATIONS),
     "distance": DISTANCES,
@@ -168,7 +168,9 @@ def resolve(
     for name, value in overrides.items():
         if name not in COMPONENTS:
             raise TypeError(f"unknown component '{name}'")
-        if value is not None and value not in COMPONENTS[name]:
+        if name == "backbone" and value is not None:
+            validate_backbone(value)
+        elif value is not None and value not in COMPONENTS[name]:
             raise ValueError(f"unknown {name} '{value}' (available: {', '.join(COMPONENTS[name])})")
     if not 0.0 <= time_smoothing <= 1.0:
         raise ValueError("time smoothing must be in [0, 1]")

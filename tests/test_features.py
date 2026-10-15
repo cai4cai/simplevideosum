@@ -1,17 +1,16 @@
 import pytest
 import torch
-from torch import nn
 
 from simplevideosum.features import (
-    BACKBONES,
-    FEATURE_MAP_SIZE,
-    SIGNATURE_DIM,
     build_feature_extractor,
     compute_signatures,
     extract_features,
     preprocess,
 )
 from simplevideosum.io import VideoReader
+
+SIGNATURE_DIM = 2048  # InceptionV3, the default backbone
+FEATURE_MAP_SIZE = 8
 
 
 @pytest.fixture(scope="module")
@@ -84,48 +83,3 @@ def test_scda_aggregation_variants():
         "scda_thresh": (False, False),  # no morphology
         "scda_fill": (True, True),  # videosum
     }
-
-
-def test_convnext_tiny_signature_shapes():
-    model = build_feature_extractor(pretrained=False, device="cpu", backbone="convnext_tiny")
-    frames = torch.randint(0, 255, (2, 3, 64, 96), dtype=torch.uint8)
-    assert model[0](preprocess(frames, 224)).shape == (2, 768, 7, 7)
-    assert extract_features(model, frames).shape == (2, 768)  # resized to its own input size
-
-
-class FakeDinoV2(nn.Module):
-    """Stands in for the torch.hub model: 14-pixel patches and 8 channels."""
-
-    def __init__(self):
-        super().__init__()
-        self.proj = nn.Conv2d(3, 8, kernel_size=14, stride=14)
-
-    def forward_features(self, x):
-        tokens = self.proj(x).flatten(2).transpose(1, 2)
-        return {"x_norm_clstoken": tokens.mean(dim=1), "x_norm_patchtokens": tokens}
-
-
-def test_dinov2_is_loaded_through_torch_hub_and_gives_a_map_of_patch_tokens(monkeypatch):
-    calls = []
-
-    def fake_hub_load(repo, name, **kwargs):
-        calls.append((repo, name, kwargs))
-        return FakeDinoV2()
-
-    monkeypatch.setattr(torch.hub, "load", fake_hub_load)
-    model = build_feature_extractor(pretrained=False, device="cpu", backbone="dinov2_vits14")
-    assert calls == [
-        ("facebookresearch/dinov2", "dinov2_vits14", {"pretrained": False, "trust_repo": True})
-    ]
-    frames = torch.randint(0, 255, (2, 3, 64, 96), dtype=torch.uint8)
-    maps = model[0](preprocess(frames, 224))
-    assert maps.shape == (2, 8, 16, 16)  # 224 / 14 patches per side, one channel per feature
-    assert extract_features(model, frames).shape == (2, 8)
-    scda = build_feature_extractor(
-        pretrained=False, device="cpu", backbone="dinov2_vits14", aggregation="scda"
-    )
-    assert extract_features(scda, frames).shape == (2, 16)  # average and max pooling
-
-
-def test_backbones_are_registered():
-    assert list(BACKBONES) == ["inceptionv3", "convnext_tiny", "dinov2_vits14"]

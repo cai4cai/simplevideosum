@@ -1,8 +1,10 @@
+import itertools
+
 import numpy as np
 import pytest
 import torch
 
-from simplevideosum.segmentation import CumulativeStats, dissect, is_power_of_two
+from simplevideosum.segmentation import CumulativeStats, dissect, fisher_segments, is_power_of_two
 
 
 def brute_force_cost(x, start, end):
@@ -85,3 +87,72 @@ def test_dissect_runs_on_the_device_of_the_signatures():
     on_device = dissect(x.to(device), 4)
     assert on_device.device.type == device.type
     assert on_device.tolist() == dissect(x, 4).tolist()
+
+
+def total_cost(x, bounds):
+    return sum(brute_force_cost(x, a, b) for a, b in zip(bounds[:-1], bounds[1:], strict=True))
+
+
+@pytest.mark.parametrize("n_segments", [1, 2, 3, 5])
+def test_fisher_matches_exhaustive_search(n_segments):
+    x = np.random.default_rng(10).normal(size=(12, 3))
+    best = min(
+        total_cost(x, [0, *cuts, 12])
+        for cuts in itertools.combinations(range(1, 12), n_segments - 1)
+    )
+    bounds = fisher_segments(x, n_segments).tolist()
+    assert len(bounds) == n_segments + 1 and bounds[0] == 0 and bounds[-1] == 12
+    assert total_cost(x, bounds) == pytest.approx(best, rel=1e-4)
+
+
+def test_fisher_recovers_unbalanced_scenes_with_any_number_of_segments():
+    rng = np.random.default_rng(11)
+    lengths = [30, 4, 4, 22, 5]  # five scenes that a balanced bisection cannot recover
+    x = np.concatenate([rng.normal(size=(n, 8)) * 0.05 + 5 * rng.normal(size=8) for n in lengths])
+    assert fisher_segments(x, 5).tolist() == [0, 30, 34, 38, 60, 65]
+
+
+def test_fisher_is_never_worse_than_the_bisection():
+    x = np.random.default_rng(12).normal(size=(64, 5))
+    for n in (2, 4, 8):
+        assert total_cost(x, fisher_segments(x, n).tolist()) <= total_cost(
+            x, dissect(x, n).tolist()
+        ) * (1 + 1e-5)
+
+
+def test_fisher_with_as_many_segments_as_frames():
+    assert fisher_segments(np.random.default_rng(13).normal(size=(7, 2)), 7).tolist() == list(
+        range(8)
+    )
+
+
+def test_fisher_is_independent_of_the_row_chunk(monkeypatch):
+    x = np.random.default_rng(14).normal(size=(40, 3))
+    expected = fisher_segments(x, 4).tolist()
+    monkeypatch.setattr("simplevideosum.segmentation._ROW_CHUNK", 7)
+    assert fisher_segments(x, 4).tolist() == expected
+
+
+def test_fisher_is_independent_of_the_blocks_of_the_cost_matrix(monkeypatch):
+    x = np.random.default_rng(15).normal(size=(40, 6))
+    expected = fisher_segments(x, 5).tolist()
+    monkeypatch.setattr("simplevideosum.segmentation._COST_CHUNK_BYTES", 1)  # one row at a time
+    assert fisher_segments(x, 5).tolist() == expected
+
+
+def test_fisher_validation():
+    x = np.zeros((10, 2))
+    with pytest.raises(ValueError, match=">= 1"):
+        fisher_segments(x, 0)
+    with pytest.raises(ValueError, match="cannot split"):
+        fisher_segments(x, 11)
+
+
+def test_fisher_runs_on_the_device_of_the_signatures():
+    from simplevideosum.device import get_device
+
+    device = get_device()
+    x = torch.randn(40, 3)
+    on_device = fisher_segments(x.to(device), 5)
+    assert on_device.device.type == device.type
+    assert on_device.tolist() == fisher_segments(x, 5).tolist()

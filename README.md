@@ -10,28 +10,43 @@ PyTorch tensors, and only the selected key frames are decoded.
 
 Frame selection is made of explicit components, like in the original package but unpacked:
 
-1. **backbone** (`--backbone`): the network giving convolutional activations: `inceptionv3`.
+1. **backbone** (`--backbone`): the network giving convolutional activations. Either
+   `mobilenet` (the default: `MobileNet_V3_Large_Weights.DEFAULT`, 224 px input, 960 channels, 7x7
+   map, 5M parameters), `inceptionv3` (299 px, 2048 channels, 8x8 map), `dinov2_vits14` (DINOv2
+   ViT-S/14 through `torch.hub`; 224 px, 384 channels, a 16x16 map of patch tokens, 22M parameters),
+   or any torchvision classification model: its weights, e.g.
+   `MobileNet_V3_Large_Weights.IMAGENET1K_V2` or `EfficientNet_B3_Weights.IMAGENET1K_V1` (see the
+   [table of weights](https://docs.pytorch.org/vision/stable/models.html#table-of-all-available-classification-weights);
+   `.DEFAULT` is a model's best), or a model name such as `mobilenet_v3_large` for its default
+   weights. The maps are the last convolutional activations of the model, and the frames are
+   resized and normalised as the weights require. The vision transformers (`vit_*`) and SqueezeNet
+   are not supported, and DenseNet maps are taken before its last ReLU.
 2. **aggregation** (`--aggregation`): how the activations are pooled into one or more descriptors
-   per frame: `avgpool` (global average pooling, 2048-d for InceptionV3), `scda` (Selective
-   Convolutional Descriptor Aggregation, average and max pooled, 2 x 2048-d), `scda_thresh`
-   (`scda` keeping every position above the threshold, with no morphology) or `scda_fill` (`scda`
-   with the holes of the object mask filled, as in videosum).
+   per frame: `avgpool` (global average pooling, 960-d for the default backbone), `avgcatmaxpool`
+   (global average and max pooling, concatenated: SCDA without the selection of positions,
+   2 x 960-d), `scda` (Selective Convolutional Descriptor Aggregation, average and max pooled over
+   the selected positions, 2 x 960-d), `scda_thresh` (`scda` keeping every position above the
+   threshold, with no morphology) or `scda_fill` (`scda` with the holes of the object mask filled,
+   as in videosum).
 3. **normalisation** (`--normalisation`): applied to each pooled descriptor before they are
    concatenated into the frame signature: `none` or `l2`.
 4. **distance** (`--distance`): between signatures: `l2sq` (squared L2) or `cosine`.
-5. **clustering** (`-c/--clustering`): how signatures are grouped into key frames: `kmedoids`
-   (default, as in videosum) or `dissection` (temporally contiguous segments, `l2sq` only).
+5. **clustering** (`-c/--clustering`): how signatures are grouped into key frames: `fisher`
+   (default: temporally contiguous segments of least total cost), `dissection` (temporally
+   contiguous segments by greedy bisection; `n` a power of 2) or `kmedoids` (as in videosum); the
+   first two are `l2sq` only.
 
 `-a/--algo` is an alias for a configuration of these components; any component flag overrides
-the one of the algorithm:
+the one of the algorithm. It is optional: `default` holds the default components.
 
-| `-a` | aggregation | normalisation | distance | clustering |
-| --- | --- | --- | --- | --- |
-| `time` | evenly spaced frames, never looks at the images (the components are ignored) | | | |
-| `videosum_inception` | `avgpool` | `none` | `l2sq` | `kmedoids` |
-| `videosum_scda` | `scda_fill` | `none` | `cosine` | `kmedoids` |
+| `-a` | backbone | aggregation | normalisation | distance | clustering |
+| --- | --- | --- | --- | --- | --- |
+| `default` | `mobilenet` | `avgcatmaxpool` | `l2` | `l2sq` | `fisher` |
+| `time` | evenly spaced frames, never looks at the images (the components are ignored) | | | | |
+| `videosum_inception` | `inceptionv3` | `avgpool` | `none` | `l2sq` | `kmedoids` |
+| `videosum_scda` | `inceptionv3` | `scda_fill` | `none` | `cosine` | `kmedoids` |
 
-All use the `inceptionv3` backbone. `videosum_scda` follows the videosum package, which departs
+The two `videosum_*` algorithms reproduce the videosum package. `videosum_scda` follows the videosum package, which departs
 from Wei et al. (2017) in two ways: it fills the holes of the object mask, and it does not
 L2-normalise the pooled descriptors before the cosine distance. The paper's version is
 `-a videosum_scda --aggregation scda --normalisation l2`.
@@ -47,24 +62,33 @@ uv sync --extra cuda   # NVIDIA GPUs (default PyPI CUDA wheels)
 
 TorchCodec also needs the FFmpeg shared libraries (`brew install ffmpeg` / `apt install ffmpeg`).
 
-The algorithms with signatures use the pre-trained InceptionV3 ImageNet weights. torchvision
-downloads them on first use (about 100 MB, with a progress bar on stderr) and caches them in
-`~/.cache/torch/hub/checkpoints`; later runs reuse the cached file. The network runs on CUDA, then
-MPS, then CPU, whichever is available first.
+The algorithms with signatures use pre-trained weights, downloaded on first use (about 100 MB for
+the default MobileNetV3-Large, 109 MB for InceptionV3, 85 MB for DINOv2, 10-300 MB for the
+other torchvision models) with a progress
+bar on stderr, and cached in `~/.cache/torch/hub/checkpoints`; later runs reuse the cached file.
+Delete the files you no longer need from that folder. DINOv2 is loaded through `torch.hub` from
+the authors' repository, so its first use also downloads their code from GitHub
+(`facebookresearch/dinov2`, main branch, trusted by the `trust_repo` flag) to `~/.cache/torch/hub`.
+The network runs on CUDA, then MPS, then CPU, whichever is available first.
+
+The tests use random weights, except one end-to-end test that uses the default weights (21 MB,
+kept in the torch cache). `uv run pytest --pretrained-backbones` also checks a short list of backbones with their real
+weights (about 500 MB), one at a time in a temporary directory that is emptied after each, so the
+torch cache stays untouched; `--backbones-filter NAME` restricts it.
 
 ## Usage
 
 ```bash
 uv run simplevideosum -i tests/data/video.mp4 -o storyboard.jpg \
+    -n 16 -x 1920 -y 1080 -f 2 -t 1
+uv run simplevideosum -i tests/data/video.mp4 -o storyboard.jpg \
     -n 16 -x 1920 -y 1080 -a time -t 1
 uv run simplevideosum -i tests/data/video.mp4 -o storyboard.jpg \
     -n 16 -x 1920 -y 1080 -a videosum_inception -f 2 -t 1
-uv run simplevideosum -i tests/data/video.mp4 -o storyboard.jpg \
-    -n 16 -x 1920 -y 1080 -a videosum_inception -c dissection -f 2 -t 1
 ```
 
 The first command writes a 1920x1112 image: a 4x4 grid of 16 frames filling 1920x1080, plus a 32 pixel
-time segmentation bar. `python -m simplevideosum.run` is equivalent. Run
+time bar plot. `python -m simplevideosum.run` is equivalent. Run
 `uv run simplevideosum --help` for the full, self-contained documentation.
 
 | Option | Description |
@@ -73,13 +97,13 @@ time segmentation bar. `python -m simplevideosum.run` is equivalent. Run
 | `-o`, `--output` | Output image (`.jpg`, `.jpeg` or `.png`). It must not already exist. |
 | `-n`, `--nframes` | Number of frames in the collage. |
 | `-x`, `--width` | Width of the collage in pixels. |
-| `-y`, `--height` | Height of the collage in pixels (the time segmentation bar is added below it). |
-| `-a`, `--algo` | Alias for a configuration of the components (table above): `time`, `videosum_inception` or `videosum_scda`. |
+| `-y`, `--height` | Height of the collage in pixels (the time bar plot is added below it). |
+| `-a`, `--algo` | Alias for a configuration of the components (table above): `default`, `time`, `videosum_inception` or `videosum_scda`. Default: `default`. |
 | `--backbone`, `--aggregation`, `--normalisation`, `--distance` | Override the corresponding component of the algorithm. |
-| `-c`, `--clustering` | Clustering of the signatures: `kmedoids` or `dissection` (needs a power of 2 for `-n` and the `l2sq` distance). Overrides the algorithm's. |
+| `-c`, `--clustering` | Clustering of the signatures: `kmedoids`, `dissection` (needs a power of 2 for `-n` and the `l2sq` distance) or `fisher` (`l2sq` distance, at most 10,000 sampled frames). Overrides the algorithm's. |
 | `-s`, `--time-smoothing` | In [0, 1]: blends the signature distances with the temporal distance between frames, 1 gives contiguous clusters. `kmedoids` only. Default: 0. |
-| `-t`, `--time-segmentation` | Add the colour bar under the collage (`1` enables, `0` disables, bare `-t` enables). |
-| `-f`, `--fps` | Sampling frequency in fps: key frames are chosen among the video resampled at this rate. the algorithms with signatures compute a signature for each resampled frame; `time` only needs the video length and ignores it. Default: every frame. |
+| `-t`, `--time-bar-plot` | Add the colour bar under the collage and a border of the same colour around each key frame (`1` enables, `0` disables, bare `-t` enables). |
+| `-f`, `--fps` | Sampling frequency in fps: key frames are chosen among the video resampled at this rate. the algorithms with signatures compute a signature for each resampled frame. `0`, or a rate of at least the frame rate of the video, uses every frame. A video that lasts fewer seconds than there are key frames is sampled at every frame unless `-f` is given. Default: 1 (`time`: every frame). |
 | `-l`, `--log` | Log file to append to. Default: terminal only. |
 
 The options mirror `python -m videosum.run` from the original package, plus `-c` which makes the
@@ -91,9 +115,9 @@ The input must be a single video file for now.
 
 - **Tiles** (the collage can be a few pixels smaller than requested, as tile sizes are rounded): the largest tiles with the aspect ratio of the collage such that `n` of them fit
   in `x` by `y` pixels. Frames are resized to the tile size and placed row by row.
-- **`time` algorithm**: key frames are `n` evenly spaced indices over the whole video. No frame is
-  inspected, and only those `n` frames are decoded (`--fps` has no effect).
-- **Algorithms with signatures** (`videosum_inception`, `videosum_scda`): every frame of the video resampled at
+- **`time` algorithm**: key frames are `n` evenly spaced among the frames of the video resampled at
+  `--fps` (every frame by default). No frame is inspected, and only those `n` frames are decoded.
+- **Algorithms with signatures** (`default`, `videosum_inception`, `videosum_scda`): every frame of the video resampled at
   `--fps` gets a signature from the backbone, aggregation and normalisation (float32, computed on
   the GPU when available). The signatures are then clustered:
   - **`kmedoids`**: distances (`l2sq` or `cosine`) between signatures, min-max normalised and optionally
@@ -109,11 +133,18 @@ The input must be a single video file for now.
     obtained, which is why `n` must be a power of 2. The key frame of a segment is the frame whose
     signature is closest to the segment mean.
 
+  - **`fisher`**: the same segment cost, but the `n` contiguous segments of least total cost are
+    found exactly with Fisher's 1-D segmentation (dynamic programming over the cut points,
+    `F[j][e] = min_s F[j-1][s] + cost(s, e)`). Segments have any length, so a long static shot gets
+    one segment and a busy moment several, and `n` can be any number. It evaluates an (N + 1) x
+    (N + 1) cost matrix on the device (400 MB for 10,000 frames, the limit) in n x N^2 operations,
+    so lower `-f` for long videos. The key frame is chosen as for `dissection`.
+
   The greedy bisection can only produce balanced hierarchies, so on the demo video it spends half
   of the segments on the first 17 seconds. It is kept as an experiment, `kmedoids` is the baseline.
 - **`scda` aggregation**: Selective Convolutional Descriptor Aggregation (Wei et al., 2017) of the
-  8x8x2048 activations of InceptionV3's last convolutional block. The activations are summed over
-  channels, the positions above the mean form a mask, and only its largest 8-connected component
+  activations of the last convolutional block of the backbone (7x7x960 for the default one). The
+  activations are summed over channels, the positions above the mean form a mask, and only its largest 8-connected component
   is kept. The descriptors at those positions are average- and max-pooled, so the signature mostly
   describes the main object rather than the background. The selection runs batched on the device
   (CPU, CUDA or MPS) with the pure PyTorch morphology of `simplevideosum.morphology`: components
@@ -126,8 +157,11 @@ The input must be a single video file for now.
 - **`cosine` distance**: one minus the cosine similarity of the signatures, min-max normalised
   (and blended with the temporal distance by `-s`) like `l2sq`. With `l2` normalised pooled
   descriptors it is the mean of the cosine distances of the descriptors.
-- **Time segmentation bar**: each column is coloured by the key frame that is nearest in time
-  to it, and black lines mark the key frame positions.
+- **Time bar plot**: each column is coloured by the cluster of the frame at that moment of the
+  video, i.e. by the key frame that represents it (not necessarily the nearest one in time for
+  `kmedoids`), and black lines mark the key frame positions. The key frames are shown in time
+  order, each with a border of the colour of its cluster. The colours are those of ColorBrewer
+  Set3, then hues spaced by the golden angle when there are more than 12 key frames.
 
 ## Development
 

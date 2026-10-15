@@ -1,81 +1,60 @@
 """Per-frame signatures: a pre-trained backbone, then an aggregation and a normalisation."""
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
-from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
+from simplevideosum.aggregation import (
+    AGGREGATIONS,
+    DEFAULT_AGGREGATION,
+    DEFAULT_NORMALISATION,
+    NORMALISATIONS,
+)
+from simplevideosum.backbones import (
+    DEFAULT_BACKBONE,
+    IMAGENET_MEAN,
+    IMAGENET_STD,
+    build_backbone,
+    validate_backbone,
+)
 from simplevideosum.device import get_device
 
 if TYPE_CHECKING:  # TorchCodec is slow to import, and only the type is needed here
     from simplevideosum.io import VideoReader
 
-INPUT_SIZE = 299
-SIGNATURE_DIM = 2048
-FEATURE_MAP_SIZE = 8  # side of the last InceptionV3 convolutional activations for 299x299 inputs
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
-
-
-class InceptionMaps(nn.Module):
-    """InceptionV3 up to its last convolutional block: (N, 3, 299, 299) frames to the
-    (N, 2048, 8, 8) activations that the global average pooling normally collapses."""
-
-    def __init__(self, model: nn.Module) -> None:
-        super().__init__()
-        self.model = model
-        self.model.avgpool = nn.Identity()
-        self.model.fc = nn.Identity()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        flat = self.model(x)  # eval mode: the flattened activations, without the aux classifier
-        return flat.reshape(len(x), SIGNATURE_DIM, FEATURE_MAP_SIZE, FEATURE_MAP_SIZE)
-
-
-def build_inception_v3(pretrained: bool) -> nn.Module:
-    from torchvision import models  # deferred: importing torchvision is slow (see run.py)
-
-    if pretrained:
-        model = models.inception_v3(
-            weights=models.Inception_V3_Weights.IMAGENET1K_V1, progress=True
-        )
-    else:
-        model = models.inception_v3(weights=None, init_weights=False)
-    return InceptionMaps(model)
-
-
-BACKBONES: dict[str, Callable[[bool], nn.Module]] = {"inceptionv3": build_inception_v3}
+LEGACY_INPUT_SIZE = 299  # the input size of the models that do not say (see extract_features)
 
 
 def build_feature_extractor(
     pretrained: bool = True,
     device: str | torch.device | None = None,
-    backbone: str = "inceptionv3",
-    aggregation: str = "avgpool",
-    normalisation: str = "none",
+    backbone: str = DEFAULT_BACKBONE,
+    aggregation: str = DEFAULT_AGGREGATION,
+    normalisation: str = DEFAULT_NORMALISATION,
 ) -> nn.Module:
-    """Model mapping normalised (N, 3, 299, 299) frames to (N, D) signatures, in three steps:
-    the ``backbone`` gives convolutional activations, the ``aggregation`` pools them into one or
-    more descriptors per frame and the ``normalisation`` is applied to each (see ``aggregation``
-    module); the descriptors are then concatenated. With the defaults, for InceptionV3, this is
-    the 2048-d globally average pooled activations.
+    """Model mapping uint8 (N, 3, H, W) frames to (N, D) signatures, in three steps: the
+    ``backbone`` (see ``backbones``) gives convolutional activations, the ``aggregation`` pools
+    them into one or more descriptors per frame and the ``normalisation`` is applied to each (see
+    ``aggregation`` module); the descriptors are then concatenated. With the defaults, this is
+    the average and max pooled activations of MobileNetV3-Large, each of unit norm (2 x 960-d).
+    The frames are resized and normalised for the backbone by ``extract_features``.
 
-    ``pretrained=True`` uses the ImageNet weights, downloaded on first use (about 100 MB) to the
-    torch hub cache (``~/.cache/torch/hub/checkpoints``) with a progress bar on stderr; later
-    runs reuse the cached file. The model is placed on ``device`` (default: CUDA, MPS, then CPU).
+    ``pretrained=True`` uses the pre-trained weights, downloaded on first use (about 100 MB for
+    InceptionV3, 85 MB for DINOv2) to the torch hub cache (``~/.cache/torch/hub/checkpoints``)
+    with a progress bar on stderr; later runs reuse the cached file. The model is placed on
+    ``device`` (default: CUDA, MPS, then CPU).
     """
+    validate_backbone(backbone)
     for kind, name, registry in (
-        ("backbone", backbone, BACKBONES),
         ("aggregation", aggregation, AGGREGATIONS),
         ("normalisation", normalisation, NORMALISATIONS),
     ):
         if name not in registry:
             raise ValueError(f"unknown {kind} '{name}' (available: {', '.join(registry)})")
     model = nn.Sequential(
-        BACKBONES[backbone](pretrained),
+        build_backbone(backbone, pretrained),
         AGGREGATIONS[aggregation](),
         NORMALISATIONS[normalisation](),
         nn.Flatten(),
@@ -83,17 +62,22 @@ def build_feature_extractor(
     return model.eval().to(device if device is not None else get_device())
 
 
-def preprocess(frames: torch.Tensor) -> torch.Tensor:
-    """Resize (N, 3, H, W) uint8 frames to 299x299 and apply the ImageNet normalisation."""
+def preprocess(
+    frames: torch.Tensor,
+    input_size: int,
+    mean: tuple[float, ...] = IMAGENET_MEAN,
+    std: tuple[float, ...] = IMAGENET_STD,
+) -> torch.Tensor:
+    """Resize (N, 3, H, W) uint8 frames to ``input_size`` squared and normalise them."""
     x = F.interpolate(
         frames.float() / 255,
-        size=(INPUT_SIZE, INPUT_SIZE),
+        size=(input_size, input_size),
         mode="bilinear",
         antialias=True,
         align_corners=False,
     )
-    mean = torch.tensor(IMAGENET_MEAN, device=x.device).view(1, 3, 1, 1)
-    std = torch.tensor(IMAGENET_STD, device=x.device).view(1, 3, 1, 1)
+    mean = torch.tensor(mean, device=x.device).view(1, 3, 1, 1)
+    std = torch.tensor(std, device=x.device).view(1, 3, 1, 1)
     return (x - mean) / std
 
 
@@ -103,7 +87,16 @@ def extract_features(model: nn.Module, frames: torch.Tensor) -> torch.Tensor:
     if frames.ndim != 4 or frames.shape[1] != 3:
         raise ValueError(f"expected (N, 3, H, W) frames, got {tuple(frames.shape)}")
     device = next(model.parameters()).device
-    return model(preprocess(frames.to(device)))
+    # A model from build_feature_extractor starts with its backbone, which says how to prepare the
+    # frames; any other model gets those of InceptionV3 (299 px, ImageNet statistics).
+    backbone = model[0] if isinstance(model, nn.Sequential) else model
+    x = preprocess(
+        frames.to(device),
+        getattr(backbone, "input_size", LEGACY_INPUT_SIZE),
+        getattr(backbone, "mean", IMAGENET_MEAN),
+        getattr(backbone, "std", IMAGENET_STD),
+    )
+    return model(x)
 
 
 def compute_signatures(

@@ -9,13 +9,21 @@ from dataclasses import dataclass, replace
 
 import torch
 
-from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
+from simplevideosum.aggregation import (
+    AGGREGATIONS,
+    DEFAULT_AGGREGATION,
+    DEFAULT_NORMALISATION,
+    NORMALISATIONS,
+)
+from simplevideosum.backbones import ALIAS_NAMES, DEFAULT_BACKBONE, validate_backbone
 from simplevideosum.distances import DISTANCES
-from simplevideosum.features import BACKBONES
 from simplevideosum.kmedoids import MAX_FRAMES, kmedoids
-from simplevideosum.segmentation import dissect, is_power_of_two
+from simplevideosum.segmentation import dissect, fisher_segments, is_power_of_two
 
 Selection = tuple[torch.Tensor, torch.Tensor]
+
+# Its N x N cost matrix is 400 MB in float32, and building it takes about 0.6 GB more.
+MAX_FISHER_FRAMES = 10_000
 
 
 def select_time(num_frames: int, n_key_frames: int) -> Selection:
@@ -28,17 +36,10 @@ def select_time(num_frames: int, n_key_frames: int) -> Selection:
     return indices, distances.argmin(dim=1)
 
 
-def select_segments(
-    signatures: torch.Tensor, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
-) -> Selection:
-    """Cut the video into temporally contiguous segments of similar signatures.
-
-    The key frame of each segment is the one whose signature is closest to the segment mean.
-    The cost of a segment is its within-segment squared L2 distance, whatever ``distance`` says
-    (the clustering is only offered with ``l2sq``). The result is on the signatures' device.
-    """
-    signatures = torch.as_tensor(signatures, dtype=torch.float32)
-    bounds = dissect(signatures, n_key_frames)
+def key_frames_of_segments(signatures: torch.Tensor, bounds: torch.Tensor) -> Selection:
+    """The key frame of each segment ``[bounds[k], bounds[k + 1])`` is the one whose signature is
+    closest to the segment mean. The result is on the signatures' device."""
+    n_key_frames = len(bounds) - 1
     labels = torch.arange(n_key_frames, device=signatures.device).repeat_interleave(bounds.diff())
     indices = torch.empty(n_key_frames, dtype=torch.long, device=signatures.device)
     edges = bounds.tolist()
@@ -46,6 +47,27 @@ def select_segments(
         segment = signatures[start:end]
         indices[k] = start + ((segment - segment.mean(dim=0)) ** 2).sum(dim=1).argmin()
     return indices, labels
+
+
+def select_segments(
+    signatures: torch.Tensor, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
+) -> Selection:
+    """Cut the video into temporally contiguous segments by recursive bisection.
+
+    The cost of a segment is its within-segment squared L2 distance, whatever ``distance`` says
+    (the clustering is only offered with ``l2sq``).
+    """
+    signatures = torch.as_tensor(signatures, dtype=torch.float32)
+    return key_frames_of_segments(signatures, dissect(signatures, n_key_frames))
+
+
+def select_optimal_segments(
+    signatures: torch.Tensor, n_key_frames: int, time_smoothing: float = 0.0, distance: str = "l2sq"
+) -> Selection:
+    """Cut the video into the temporally contiguous segments of least total cost (Fisher's
+    exact segmentation); the cost is the same as for ``select_segments``."""
+    signatures = torch.as_tensor(signatures, dtype=torch.float32)
+    return key_frames_of_segments(signatures, fisher_segments(signatures, n_key_frames))
 
 
 def select_kmedoids(
@@ -76,8 +98,15 @@ class Clustering:
 CLUSTERINGS: dict[str, Clustering] = {
     "kmedoids": Clustering(select_kmedoids, supports_time_smoothing=True, max_frames=MAX_FRAMES),
     "dissection": Clustering(select_segments, validate=require_power_of_two, distances=("l2sq",)),
+    "fisher": Clustering(
+        select_optimal_segments, distances=("l2sq",), max_frames=MAX_FISHER_FRAMES
+    ),
 }
-DEFAULT_CLUSTERING = "kmedoids"
+DEFAULT_CLUSTERING = "fisher"
+
+
+# Sampling frequency of the algorithms with signatures when --fps is not given; 0 is every frame.
+DEFAULT_FPS = 1.0
 
 
 @dataclass(frozen=True)
@@ -88,16 +117,17 @@ class Algorithm:
     ``backbone`` (convolutional activations), the ``aggregation`` (pooled descriptors) and the
     ``normalisation`` of each of them, which gives its signature; signatures are compared with
     the ``distance`` and grouped by the ``clustering`` method. Each component can be overridden
-    on the command line. The others select from the video length alone (``select``) and ignore
-    all of this.
+    on the command line, as can the ``fps`` at which the video is sampled. The others select from
+    the video length alone (``select``) and ignore all of this.
     """
 
     select: Callable[[int, int], Selection] | None = None
-    backbone: str = "inceptionv3"
-    aggregation: str = "avgpool"
-    normalisation: str = "none"
+    backbone: str = DEFAULT_BACKBONE
+    aggregation: str = DEFAULT_AGGREGATION
+    normalisation: str = DEFAULT_NORMALISATION
     distance: str = "l2sq"
     clustering: str = DEFAULT_CLUSTERING
+    fps: float = DEFAULT_FPS  # of the video that the signatures describe; 0: every frame
 
     @property
     def uses_signatures(self) -> bool:
@@ -106,7 +136,7 @@ class Algorithm:
 
 # Choices of every component that can be overridden from the command line (--<name>).
 COMPONENTS: dict[str, tuple[str, ...]] = {
-    "backbone": tuple(BACKBONES),
+    "backbone": ALIAS_NAMES,  # and the weights of any torchvision classification model
     "aggregation": tuple(AGGREGATIONS),
     "normalisation": tuple(NORMALISATIONS),
     "distance": DISTANCES,
@@ -117,15 +147,28 @@ COMPONENTS: dict[str, tuple[str, ...]] = {
 PIPELINE_COMPONENTS = tuple(name for name in COMPONENTS if name != "clustering")
 
 # Algorithms available from the command line (-a): named configurations of the components.
+DEFAULT_ALGORITHM = "default"
 ALGORITHMS: dict[str, Algorithm] = {
+    # the default components: temporally contiguous segments of least total cost of the average
+    # and max pooled activations of MobileNetV3-Large, L2-normalised
+    DEFAULT_ALGORITHM: Algorithm(),
     # evenly spaced frames, no features
-    "time": Algorithm(select=select_time),
-    # videosum "inception": globally pooled activations, k-medoids on squared L2 distances
-    "videosum_inception": Algorithm(),
-    # videosum "scda": SCDA (Wei et al., 2017), k-medoids on cosine distances. Unlike the paper,
-    # the holes of the selection mask are filled and the pooled descriptors are not L2-normalised
-    # (the paper's version is --aggregation scda --normalisation l2)
-    "videosum_scda": Algorithm(aggregation="scda_fill", distance="cosine"),
+    "time": Algorithm(select=select_time, fps=0),  # every frame is a candidate
+    # videosum "inception": globally pooled InceptionV3 activations, k-medoids on squared L2
+    # distances
+    "videosum_inception": Algorithm(
+        backbone="inceptionv3", aggregation="avgpool", normalisation="none", clustering="kmedoids"
+    ),
+    # videosum "scda": SCDA (Wei et al., 2017) of InceptionV3, k-medoids on cosine distances.
+    # Unlike the paper, the holes of the selection mask are filled and the pooled descriptors are
+    # not L2-normalised (the paper's version is --aggregation scda --normalisation l2)
+    "videosum_scda": Algorithm(
+        backbone="inceptionv3",
+        aggregation="scda_fill",
+        normalisation="none",
+        distance="cosine",
+        clustering="kmedoids",
+    ),
 }
 
 
@@ -149,7 +192,9 @@ def resolve(
     for name, value in overrides.items():
         if name not in COMPONENTS:
             raise TypeError(f"unknown component '{name}'")
-        if value is not None and value not in COMPONENTS[name]:
+        if name == "backbone" and value is not None:
+            validate_backbone(value)
+        elif value is not None and value not in COMPONENTS[name]:
             raise ValueError(f"unknown {name} '{value}' (available: {', '.join(COMPONENTS[name])})")
     if not 0.0 <= time_smoothing <= 1.0:
         raise ValueError("time smoothing must be in [0, 1]")

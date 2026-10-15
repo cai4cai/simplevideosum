@@ -24,6 +24,14 @@ def test_read_returns_uint8_nchw(reader):
     assert frames.dtype == torch.uint8
 
 
+def test_threaded_decoding_gives_the_same_frames_as_single_threaded(video_path, reader):
+    from torchcodec.decoders import VideoDecoder
+
+    indices = [0, 7, 500, 1500, 3826]
+    single = VideoDecoder(video_path, num_ffmpeg_threads=1).get_frames_at(indices).data
+    assert torch.equal(reader.read(indices), single)
+
+
 class FakeDecoder:
     """Stands in for a TorchCodec decoder with 100 frames and the given metadata."""
 
@@ -59,4 +67,10 @@ def test_missing_file(tmp_path):
 def test_frames_feed_feature_extractor(reader):
     model = build_feature_extractor(pretrained=False, device="cpu")
     feats = extract_features(model, reader.read([0, 500, 1000, 1500]))
-    assert feats.shape == (4, 2048)
+    assert feats.shape == (4, 2 * 960)  # average and max pooling of the 960 channels
+
+
+def test_sampled_indices_rejects_negative_and_nan_rates(reader):
+    for fps in (-1, float("nan")):
+        with pytest.raises(ValueError, match=">= 0"):
+            reader.sampled_indices(fps)

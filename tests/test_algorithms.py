@@ -5,9 +5,12 @@ import torch
 from simplevideosum.algorithms import (
     ALGORITHMS,
     CLUSTERINGS,
+    DEFAULT_ALGORITHM,
     DEFAULT_CLUSTERING,
+    Algorithm,
     resolve,
     select_kmedoids,
+    select_optimal_segments,
     select_segments,
     select_time,
 )
@@ -43,10 +46,22 @@ def test_registry_contains_time():
     assert not ALGORITHMS["time"].uses_signatures
     assert ALGORITHMS["videosum_inception"].uses_signatures
 
-    default = ALGORITHMS["videosum_inception"]
+
+def test_default_algorithm():
+    assert DEFAULT_ALGORITHM == "default"
+    default = ALGORITHMS[DEFAULT_ALGORITHM]
+    assert default == Algorithm()  # the defaults of the components
+    assert default.uses_signatures
     assert (default.backbone, default.aggregation, default.normalisation, default.distance) == (
+        "mobilenet", "avgcatmaxpool", "l2", "l2sq")  # fmt: skip
+    assert default.clustering == DEFAULT_CLUSTERING == "fisher"
+
+
+def test_videosum_inception_preset():
+    preset = ALGORITHMS["videosum_inception"]
+    assert (preset.backbone, preset.aggregation, preset.normalisation, preset.distance) == (
         "inceptionv3", "avgpool", "none", "l2sq")  # fmt: skip
-    assert default.clustering == DEFAULT_CLUSTERING
+    assert preset.clustering == "kmedoids"
 
 
 def test_videosum_scda_preset():
@@ -80,6 +95,20 @@ def test_segments_recover_obvious_scenes():
     assert [labels[i] for i in indices] == [0, 1, 2, 3]  # key frame k lies in segment k
 
 
+def test_optimal_segments_recover_unbalanced_scenes():
+    centres = [(0, 0), (10, 0), (11, 3), (100, 0), (110, 5)]
+    signatures = piecewise_signatures([30, 4, 4, 22, 5], centres)
+    indices, labels = select_optimal_segments(signatures, 5)
+    assert labels.bincount().tolist() == [30, 4, 4, 22, 5]
+    assert [labels[i] for i in indices] == [0, 1, 2, 3, 4]
+
+
+def test_optimal_segments_accept_any_number_of_segments():
+    signatures = piecewise_signatures([10, 10, 10], [(0, 0), (10, 0), (0, 10)])
+    assert len(select_optimal_segments(signatures, 3)[0]) == 3
+    assert resolve("videosum_inception", "fisher", 3)[1] is CLUSTERINGS["fisher"]
+
+
 def test_segments_key_frame_is_closest_to_segment_mean():
     signatures = np.array([[0.0], [1.0], [10.0], [11.0], [12.0], [20.0], [30.0], [31.0]])
     indices, _ = select_segments(signatures, 2)
@@ -91,12 +120,14 @@ def test_segments_key_frame_is_closest_to_segment_mean():
 def test_clustering_registry():
     assert CLUSTERINGS["kmedoids"].select is select_kmedoids
     assert CLUSTERINGS["dissection"].select is select_segments
-    assert DEFAULT_CLUSTERING == "kmedoids"
+    assert CLUSTERINGS["fisher"].select is select_optimal_segments
+    assert DEFAULT_CLUSTERING == "fisher"
 
 
-def test_resolve_picks_the_default_clustering_for_signature_algorithms():
-    algorithm, clustering = resolve("videosum_inception", None, 12)
-    assert algorithm.uses_signatures and clustering is CLUSTERINGS["kmedoids"]
+def test_resolve_picks_the_clustering_of_the_algorithm_for_signature_algorithms():
+    algorithm, clustering = resolve(DEFAULT_ALGORITHM, None, 12)  # any number of frames
+    assert algorithm.uses_signatures and clustering is CLUSTERINGS["fisher"]
+    assert resolve("videosum_inception", None, 12)[1] is CLUSTERINGS["kmedoids"]
     assert resolve("videosum_inception", "dissection", 16)[1] is CLUSTERINGS["dissection"]
 
 
@@ -127,6 +158,8 @@ def test_resolve_ignores_the_clustering_for_the_time_algorithm():
         (("time", None, 16, 0.5), "cannot use time smoothing"),
         (("videosum_inception", None, 16, 1.5), "time smoothing must be in"),
         (("videosum_scda", "dissection", 16), "only supports the l2sq distance"),
+        (("videosum_scda", "fisher", 16), "only supports the l2sq distance"),
+        (("videosum_inception", "fisher", 16, 0.5), "cannot use time smoothing"),
         (("videosum_inception", None, 16, 0.0, "backbone", "bogus"), "unknown backbone"),
     ],
 )

@@ -1,11 +1,12 @@
 """Storyboard layout and rendering."""
 
+import colorsys
 from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
 
-# ColorBrewer "Set3" qualitative palette, one colour per key frame (cycled if needed).
+# ColorBrewer "Set3" qualitative palette, the first colours of the key frames (see colour_palette).
 SET3 = torch.tensor(
     [
         (141, 211, 199), (255, 255, 179), (190, 186, 218), (251, 128, 114),
@@ -45,10 +46,41 @@ class Layout:
         return self.tiles_per_row * self.tiles_per_col
 
 
-def make_collage(frames: torch.Tensor, layout: Layout) -> torch.Tensor:
-    """Tile (N, 3, H, W) uint8 frames row by row into a (3, h, w) uint8 collage."""
+def border_width(layout: Layout) -> int:
+    """Thickness in pixels of the coloured border of a tile: thin, but always visible."""
+    return max(2, layout.tile_height // 90)
+
+
+def colour_palette(n: int) -> torch.Tensor:
+    """(n, 3) uint8 colours, distinct for any n: the 12 of Set3, then hues spaced by the golden
+    angle. The first colours do not depend on n."""
+    if n <= len(SET3):
+        return SET3[:n]
+    hues = (0.05 + 0.6180339887 * torch.arange(n - len(SET3))) % 1.0
+    extra = [colorsys.hsv_to_rgb(float(hue), 0.6, 0.9) for hue in hues]
+    return torch.cat([SET3, (torch.tensor(extra) * 255).round().to(torch.uint8)])
+
+
+def label_colours(labels: torch.Tensor) -> torch.Tensor:
+    """The (N, 3) uint8 colours of the labels (non-negative integers), one per label."""
+    labels = torch.as_tensor(labels).cpu()
+    if labels.numel() == 0:
+        return SET3[:0]
+    return colour_palette(int(labels.max()) + 1)[labels]
+
+
+def make_collage(
+    frames: torch.Tensor, layout: Layout, colours: torch.Tensor | None = None
+) -> torch.Tensor:
+    """Tile (N, 3, H, W) uint8 frames row by row into a (3, h, w) uint8 collage.
+
+    With ``colours`` (N, 3), each tile gets a border of its colour, drawn over the edge of the
+    tile so that the layout does not change.
+    """
     if frames.shape[0] > layout.capacity:
         raise ValueError("more frames than tiles in the layout")
+    if colours is not None and len(colours) != frames.shape[0]:
+        raise ValueError(f"expected one colour per frame, got {len(colours)} for {len(frames)}")
     collage = torch.zeros(
         3, layout.tiles_per_col * layout.tile_height, layout.tiles_per_row * layout.tile_width,
         dtype=torch.uint8,
@@ -64,6 +96,14 @@ def make_collage(frames: torch.Tensor, layout: Layout) -> torch.Tensor:
         row, col = divmod(k, layout.tiles_per_row)
         y, x = row * layout.tile_height, col * layout.tile_width
         collage[:, y : y + layout.tile_height, x : x + layout.tile_width] = tile
+        if colours is not None:
+            collage_tile = collage[:, y : y + layout.tile_height, x : x + layout.tile_width]
+            b = border_width(layout)
+            colour = colours[k].reshape(3, 1, 1)
+            collage_tile[:, :b, :] = colour
+            collage_tile[:, -b:, :] = colour
+            collage_tile[:, :, :b] = colour
+            collage_tile[:, :, -b:] = colour
     return collage
 
 
@@ -81,6 +121,6 @@ def make_segbar(
     n = len(labels)
     columns = torch.arange(width, dtype=torch.float64)
     frame_of_column = (columns * n / width).round().long().clamp(0, n - 1)
-    bar = SET3[labels[frame_of_column] % len(SET3)]  # (width, 3)
+    bar = label_colours(labels[frame_of_column])  # (width, 3)
     bar[(indices.double() * width / n).round().long().clamp(0, width - 1)] = 0
     return bar.T[:, None, :].expand(3, height, width).contiguous()

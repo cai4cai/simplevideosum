@@ -18,7 +18,9 @@ import torch
 from simplevideosum.algorithms import (
     ALGORITHMS,
     COMPONENTS,
+    DEFAULT_ALGORITHM,
     DEFAULT_CLUSTERING,
+    DEFAULT_FPS,
     PIPELINE_COMPONENTS,
     resolve,
 )
@@ -30,18 +32,25 @@ HELP = {
     "-o": "Path of the output image (.jpg, .jpeg or .png). Must not already exist.",
     "-n": "Number of frames in the collage.",
     "-x": "Width of the collage in pixels.",
-    "-y": "Height of the collage in pixels (the time segmentation bar is added below it).",
+    "-y": "Height of the collage in pixels (the time bar plot is added below it).",
     "-a": "Algorithm for frame selection: a named configuration of the components below. "
     "Available: "
     + ", ".join(ALGORITHMS)
-    + ". time picks evenly spaced frames (no feature extraction, ignores the components), "
-    "videosum_inception is the globally pooled InceptionV3 activations compared with squared L2, "
-    "videosum_scda is SCDA (Wei et al., 2017) compared with the cosine distance, as in the "
-    "videosum package.",
+    + f". Default: {DEFAULT_ALGORITHM}, the default components: MobileNetV3-Large, average and "
+    "max pooling, L2 normalisation, squared L2 distance and temporally contiguous segments of "
+    "least total cost (fisher). time picks evenly spaced frames (no feature extraction, ignores "
+    "the components). videosum_inception and videosum_scda reproduce the videosum package: "
+    "InceptionV3, k-medoids, and either the globally pooled activations compared with squared "
+    "L2 or SCDA (Wei et al., 2017) compared with the cosine distance.",
     "--backbone": "Network producing the convolutional activations; overrides the algorithm's. "
-    "Available: " + ", ".join(COMPONENTS["backbone"]) + ".",
+    "Available: " + ", ".join(COMPONENTS["backbone"]) + ", the name of a torchvision "
+    "classification model (e.g. mobilenet_v3_large, for its default weights), or its weights "
+    "(e.g. MobileNet_V3_Large_Weights.IMAGENET1K_V2; see the table of classification weights in "
+    "the torchvision documentation). The frames are resized and normalised as the weights "
+    "require.",
     "--aggregation": "How the activations are pooled into descriptors; overrides the algorithm's. "
-    "Available: avgpool (global average pooling), scda (Selective Convolutional Descriptor "
+    "Available: avgpool (global average pooling), avgcatmaxpool (global average and max "
+    "pooling, concatenated), scda (Selective Convolutional Descriptor "
     "Aggregation: average and max pooling of the descriptors of the largest connected component "
     "above the activation threshold), scda_thresh (scda keeping every position above the "
     "threshold, no morphology), scda_fill (scda with the holes of the object mask filled, as in "
@@ -53,15 +62,19 @@ HELP = {
     "-c": "Clustering method for the signatures (ignored by time); overrides the algorithm's. "
     "Available: kmedoids (k-medoids with PAM, as in videosum), dissection (temporally contiguous "
     "segments by recursive bisection; the number of frames must be a power of 2, and only "
-    "l2sq is supported). "
+    "l2sq is supported), fisher (temporally contiguous segments of least total cost, found "
+    "exactly by dynamic programming; any number of frames, only l2sq, memory grows as the "
+    "square of the number of sampled frames). "
     f"Default: {DEFAULT_CLUSTERING}.",
     "-s": "Time smoothing in [0, 1]: blends the signature distances with the temporal distance "
     "between frames, 1 gives evenly spaced contiguous clusters. Only for kmedoids. Default: 0.",
     "-t": "Add a colour bar below the collage showing which key frame represents each "
     "moment of the video (1 to enable, 0 to disable; a bare -t enables it). Default: 0.",
     "-f": "Sampling frequency in frames per second. Key frames are selected among the video "
-    "resampled at this rate (inception computes a signature for each of them). Ignored by the "
-    "time algorithm, which only needs the video length. Default: use every frame of the video.",
+    "resampled at this rate (a signature is computed for each of them). 0, or a rate of at "
+    "least the frame rate of the video, uses every frame. A video that lasts fewer seconds than "
+    "there are key frames is sampled at every frame unless this is given. "
+    f"Default: {DEFAULT_FPS:g} (every frame for time).",
     "-l": "Path of a log file to append to. Default: log to the terminal only.",
 }
 
@@ -71,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="simplevideosum",
         description="Summarise a video into a single-image storyboard of key frames.\n\n"
-        "Frames are tiled in a collage of the requested size; with --time-segmentation a "
+        "Frames are tiled in a collage of the requested size; with --time-bar-plot a "
         "colour bar underneath shows which key frame stands for each moment of the video.",
         epilog=f"example:\n  {EXAMPLE}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -83,9 +96,18 @@ def build_parser() -> argparse.ArgumentParser:
     required.add_argument("-n", "--nframes", required=True, type=int, help=HELP["-n"])
     required.add_argument("-x", "--width", required=True, type=int, help=HELP["-x"])
     required.add_argument("-y", "--height", required=True, type=int, help=HELP["-y"])
-    required.add_argument("-a", "--algo", required=True, type=str, help=HELP["-a"])
+    optional.add_argument("-a", "--algo", default=DEFAULT_ALGORITHM, type=str, help=HELP["-a"])
     optional.add_argument(
-        "-t", "--time-segmentation", nargs="?", const=1, default=0, type=int, help=HELP["-t"]
+        "-t", "--time-bar-plot", nargs="?", const=1, default=0, type=int, help=HELP["-t"]
+    )
+    optional.add_argument(  # the former name of --time-bar-plot, not shown in the usage
+        "--time-segmentation",
+        dest="time_bar_plot",
+        nargs="?",
+        const=1,
+        default=argparse.SUPPRESS,
+        type=int,
+        help=argparse.SUPPRESS,
     )
     for name in PIPELINE_COMPONENTS:
         optional.add_argument(f"--{name}", default=None, type=str, help=HELP[f"--{name}"])
@@ -112,8 +134,8 @@ def validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     for name in ("nframes", "width", "height"):
         if getattr(args, name) < 1:
             parser.error(f"--{name} must be >= 1")
-    if args.fps is not None and args.fps <= 0:
-        parser.error("--fps must be > 0")
+    if args.fps is not None and not args.fps >= 0:  # also NaN
+        parser.error("--fps must be >= 0")
     try:
         resolve(args.algo, args.clustering, args.nframes, args.time_smoothing, **components(args))
     except ValueError as error:
@@ -151,7 +173,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.width,
         args.height,
         fps=args.fps,
-        time_segmentation=bool(args.time_segmentation),
+        time_bar_plot=bool(args.time_bar_plot),
         clustering=args.clustering,
         time_smoothing=args.time_smoothing,
         **components(args),

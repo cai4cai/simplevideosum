@@ -1,6 +1,7 @@
 """Video to storyboard summarisation."""
 
 import logging
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -8,11 +9,20 @@ import torch
 from torch import nn
 
 from simplevideosum.algorithms import resolve
-from simplevideosum.collage import Layout, make_collage, make_segbar
+from simplevideosum.collage import Layout, label_colours, make_collage, make_segbar
 from simplevideosum.features import build_feature_extractor, compute_signatures
 from simplevideosum.io import VideoReader
 
 logger = logging.getLogger(__name__)
+
+
+def chronological(indices: torch.Tensor, labels: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sort the key frames in time (k-medoids returns them in any order); the labels follow, so
+    that the label of a frame is still the position of its key frame in ``indices``."""
+    order = indices.argsort()
+    rank = torch.empty_like(order)
+    rank[order] = torch.arange(len(order), device=order.device)
+    return indices[order], rank[labels]
 
 
 class VideoSummarizer:
@@ -22,7 +32,9 @@ class VideoSummarizer:
     ``backbone``, ``aggregation``, ``normalisation``, ``distance`` and ``clustering`` override its
     components, and ``time_smoothing`` tunes the clustering, for the algorithms that compare frame
     signatures. ``feature_extractor`` replaces the pre-trained model that would be built from the
-    backbone, aggregation and normalisation.
+    backbone, aggregation and normalisation. ``fps`` is the sampling frequency of the video (0:
+    every frame), by default that of the algorithm; ``time_segmentation`` is the deprecated name
+    of ``time_bar_plot``.
     """
 
     def __init__(
@@ -32,7 +44,7 @@ class VideoSummarizer:
         width: int,
         height: int,
         fps: float | None = None,
-        time_segmentation: bool = False,
+        time_bar_plot: bool = False,
         segbar_height: int = 32,
         feature_extractor: nn.Module | None = None,
         clustering: str | None = None,
@@ -41,7 +53,15 @@ class VideoSummarizer:
         aggregation: str | None = None,
         normalisation: str | None = None,
         distance: str | None = None,
+        time_segmentation: bool | None = None,
     ) -> None:
+        if time_segmentation is not None:
+            warnings.warn(
+                "time_segmentation is deprecated, use time_bar_plot",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            time_bar_plot = time_segmentation
         components = {
             "backbone": backbone,
             "aggregation": aggregation,
@@ -53,24 +73,29 @@ class VideoSummarizer:
         )
         self.algo = algo
         self.n_frames = n_frames
-        self.fps = fps
+        self.fps = fps if fps is not None else self.algorithm.fps
+        self.fps_given = fps is not None
         self.time_smoothing = time_smoothing
         if not self.algorithm.uses_signatures:
-            given = {"fps": fps, "clustering": clustering, **components}
+            given = {"clustering": clustering, **components}
             ignored = [f"--{name}" for name, value in given.items() if value]
             if ignored:
                 logger.warning("The '%s' algorithm ignores %s.", algo, " and ".join(ignored))
-        self.time_segmentation = time_segmentation
+        self.time_bar_plot = time_bar_plot
         self.segbar_height = segbar_height
         self.feature_extractor = feature_extractor
         self.layout = Layout.fit(n_frames, width, height)
 
     def _select(self, reader: VideoReader) -> tuple[Sequence[int], torch.Tensor, torch.Tensor]:
         """Returns the candidate frame indices, the key frame positions in them and the labels."""
-        if not self.algorithm.uses_signatures:
-            candidates = range(reader.num_frames)
-            return (candidates, *self.algorithm.select(len(candidates), self.n_frames))
         candidates = reader.sampled_indices(self.fps)
+        if not self.fps_given and self.fps and len(candidates) < self.n_frames:
+            # a video that lasts fewer seconds than there are key frames, at the rate of the
+            # algorithm: every frame is a candidate rather than failing for lack of them
+            logger.info("Only %d frames at %g fps: using every frame.", len(candidates), self.fps)
+            candidates = reader.sampled_indices(0)
+        if not self.algorithm.uses_signatures:
+            return (candidates, *self.algorithm.select(len(candidates), self.n_frames))
         limit = self.clustering.max_frames
         if limit is not None and len(candidates) > limit:  # fail before the costly signatures
             raise ValueError(
@@ -96,14 +121,16 @@ class VideoSummarizer:
         """Return the storyboard as a (3, H, W) uint8 RGB tensor."""
         reader = VideoReader(video_path)
         candidates, indices, labels = self._select(reader)
+        indices, labels = chronological(indices, labels)
         if len(indices) < self.n_frames:
             logger.warning(
                 "Only %d of the %d requested frames available.", len(indices), self.n_frames
             )
 
         frames = reader.read([candidates[i] for i in indices.tolist()])
-        collage = make_collage(frames, self.layout)
-        if self.time_segmentation:
+        colours = label_colours(torch.arange(len(indices))) if self.time_bar_plot else None
+        collage = make_collage(frames, self.layout, colours)
+        if self.time_bar_plot:
             bar = make_segbar(labels, indices, collage.shape[2], self.segbar_height)
             collage = torch.cat([collage, bar], dim=1)
         return collage

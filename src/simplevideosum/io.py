@@ -9,14 +9,16 @@ from torchcodec.decoders import VideoDecoder
 class VideoReader:
     """Decode video frames as uint8 (N, 3, H, W) tensors.
 
-    With ``device="cuda"`` decoding runs on NVDEC and frames stay on the GPU.
+    With ``device="cuda"`` decoding runs on NVDEC and frames stay on the GPU. On the CPU,
+    FFmpeg picks the number of decoding threads (TorchCodec's default of one thread is several
+    times slower, as each frame needs the previous ones, so seeking does not avoid decoding).
     """
 
     def __init__(self, path: str | Path, device: str | torch.device = "cpu") -> None:
         self.path = Path(path)
         if not self.path.is_file():
             raise FileNotFoundError(self.path)
-        self._decoder = VideoDecoder(self.path, device=str(device))
+        self._decoder = VideoDecoder(self.path, device=str(device), num_ffmpeg_threads=0)
 
     @property
     def num_frames(self) -> int:
@@ -37,10 +39,10 @@ class VideoReader:
         return self._decoder.metadata.duration_seconds
 
     def sampled_indices(self, fps: float | None = None) -> list[int]:
-        """Frame indices of the video resampled at ``fps`` (all frames if None or >= native)."""
-        if fps is not None and fps <= 0:
-            raise ValueError("fps must be > 0")
-        if fps is None or fps >= self.fps:
+        """Frame indices of the video resampled at ``fps`` (all frames if None, 0 or >= native)."""
+        if fps is not None and not fps >= 0:  # also NaN
+            raise ValueError("fps must be >= 0")
+        if not fps or fps >= self.fps:
             return list(range(self.num_frames))
         step = self.fps / fps
         count = max(1, int(self.num_frames / step))

@@ -18,7 +18,7 @@ def test_help_documents_every_option(capsys):
     assert exc.value.code == 0
     out = capsys.readouterr().out
     for option in ("--input", "--output", "--nframes", "--width", "--height", "--algo",
-                   "--time-segmentation", "--clustering", "--backbone", "--aggregation",
+                   "--time-bar-plot", "--clustering", "--backbone", "--aggregation",
                    "--normalisation", "--distance", "--time-smoothing", "--fps", "--log",
                    "example:"):  # fmt: skip
         assert option in out
@@ -31,7 +31,7 @@ def test_main_writes_storyboard(video_path, tmp_path, ext):
     assert tuple(read_image(output).shape) == (3, 360 + 32, 640)
 
 
-def test_bare_time_segmentation_flag_enables_bar(video_path, tmp_path):
+def test_bare_time_bar_plot_flag_enables_bar(video_path, tmp_path):
     output = tmp_path / "story.png"
     main(args(video_path, output, "-t"))
     assert read_image(output).shape[1] == 360 + 32
@@ -91,8 +91,8 @@ def test_existing_output_is_refused(video_path, tmp_path, capsys):
 
 def test_warnings_reach_the_log_file(video_path, tmp_path):
     log = tmp_path / "run.log"
-    main(args(video_path, tmp_path / "story.jpg", "-f", "2", "-l", str(log)))
-    assert "ignores --fps" in log.read_text()
+    main(args(video_path, tmp_path / "story.jpg", "-c", "kmedoids", "-l", str(log)))
+    assert "ignores --clustering" in log.read_text()
 
 
 def test_usage_does_not_import_the_slow_libraries():
@@ -102,3 +102,18 @@ def test_usage_does_not_import_the_slow_libraries():
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.split() == ["False", "False"]
+
+
+def test_fps_must_be_a_number_of_at_least_zero(video_path, tmp_path, capsys):
+    for fps in ("-1", "nan"):
+        with pytest.raises(SystemExit):
+            main(args(video_path, tmp_path / "story.jpg", "-f", fps))
+        assert "--fps must be >= 0" in capsys.readouterr().err
+
+
+def test_the_former_name_of_the_time_bar_plot_option_still_works(video_path, tmp_path):
+    output = tmp_path / "story.png"
+    main(args(video_path, output, "--time-segmentation"))
+    assert read_image(output).shape[1] == 360 + 32
+    main(args(video_path, tmp_path / "other.png"))  # and does not turn the bar on when absent
+    assert read_image(tmp_path / "other.png").shape[1] == 360

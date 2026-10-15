@@ -1,7 +1,9 @@
 import pytest
 import torch
 import torch.nn.functional as F
+from torch import nn
 
+from simplevideosum.aggregation import AGGREGATIONS
 from simplevideosum.features import (
     build_feature_extractor,
     compute_signatures,
@@ -113,3 +115,38 @@ def test_default_signature_is_the_normalised_average_and_max_of_the_maps():
     average, maximum = maps.mean(dim=(2, 3)), maps.amax(dim=(2, 3))
     expected = torch.cat([F.normalize(average, dim=-1), F.normalize(maximum, dim=-1)], dim=1)
     assert torch.allclose(extract_features(model, frames), expected, atol=1e-5)
+
+
+class Prepared(nn.Module):
+    """A backbone-like module that asks for 8-pixel frames and a unit normalisation."""
+
+    input_size, mean, std = 8, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)
+
+    def __init__(self):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(1))  # extract_features reads the device from it
+
+    def forward(self, x):
+        assert x.shape[-2:] == (8, 8)
+        return x.new_zeros(len(x), 3, 20, 20) + torch.arange(400).reshape(20, 20)  # 400 positions
+
+
+def test_a_model_that_is_not_from_build_feature_extractor_gets_the_inception_preparation():
+    class Plain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = nn.Parameter(torch.ones(1))
+
+        def forward(self, x):
+            assert x.shape[-2:] == (299, 299)
+            return x.mean(dim=(2, 3)) * self.weight
+
+    frames = torch.randint(0, 255, (2, 3, 64, 64), dtype=torch.uint8)
+    assert extract_features(Plain(), frames).shape == (2, 3)
+
+
+def test_scda_aggregation_on_maps_with_more_than_256_positions():
+    model = nn.Sequential(Prepared(), AGGREGATIONS["scda"](), nn.Flatten())
+    model.eval()
+    feats = extract_features(model, torch.randint(0, 255, (2, 3, 32, 32), dtype=torch.uint8))
+    assert feats.shape == (2, 2 * 3) and bool(torch.isfinite(feats).all())

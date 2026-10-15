@@ -79,9 +79,14 @@ def torchvision_weights(spec: str) -> tuple[str, object]:
         weights = models.get_weight(spec)  # "Class_Weights.DEFAULT"
     except (ValueError, AttributeError, KeyError):
         weights = None
-    if weights is not None:
-        model_name = next(name for name, w in table.values() if type(w) is type(weights))
+    model_name = next((name for name, w in table.values() if type(w) is type(weights)), None)
+    if weights is not None and model_name is not None:
         return model_name, weights
+    if weights is not None:  # weights of torchvision, but not of a supported classification model
+        raise ValueError(
+            f"'{spec}' is not supported: the backbones are the pre-trained classification models "
+            f"of torchvision (such as {EXAMPLE})"
+        )
     close = difflib.get_close_matches(spec, [*table, *names], n=3)
     hint = f" Did you mean {', '.join(close)}?" if close else ""
     raise ValueError(
@@ -104,33 +109,34 @@ class _Captured(Exception):
         self.output = output
 
 
-def _stop(module: nn.Module, inputs: tuple, output: torch.Tensor) -> None:
-    raise _Captured(output)
+def find_maps_module(model: nn.Module, input_size: int) -> tuple[str, int]:
+    """The module whose output is the last convolutional activations of ``model``, and the
+    number of the call of that module to stop at (a module can be called several times): the
+    last output with the shape (N, C, H, W) and more than one position, in a forward pass."""
+    calls: list[tuple[str, int]] = []  # (module, call number) of each output of that shape
+    count: dict[str, int] = {}
+    hooks = []
 
+    def record(name: str):
+        def hook(module: nn.Module, inputs: tuple, output: torch.Tensor) -> None:
+            count[name] = count.get(name, 0) + 1
+            if isinstance(output, torch.Tensor) and output.ndim == 4 and min(output.shape[2:]) > 1:
+                calls.append((name, count[name]))
 
-def find_maps_module(model: nn.Module, input_size: int) -> str:
-    """Name of the module whose output is the last convolutional activations of ``model``: the
-    last one to give (N, C, H, W) activations with more than one position, in a forward pass."""
-    outputs, hooks = [], []
+        return hook
+
     for name, module in model.named_modules():
         if name:
-            hooks.append(
-                module.register_forward_hook(lambda m, i, o, name=name: outputs.append((name, o)))
-            )
+            hooks.append(module.register_forward_hook(record(name)))
     try:
         with torch.inference_mode():
             model(torch.zeros(1, 3, input_size, input_size))
     finally:
         for hook in hooks:
             hook.remove()
-    names = [
-        name
-        for name, o in outputs
-        if isinstance(o, torch.Tensor) and o.ndim == 4 and o.shape[2] > 1 and o.shape[3] > 1
-    ]
-    if not names:
+    if not calls:
         raise ValueError(f"no convolutional activations found in {type(model).__name__}")
-    return names[-1]
+    return calls[-1]
 
 
 class TorchvisionMaps(nn.Module):
@@ -141,27 +147,34 @@ class TorchvisionMaps(nn.Module):
     def __init__(
         self,
         model: nn.Module,
-        maps_module: str,
+        maps_module: tuple[str, int],
         input_size: int,
         mean: tuple[float, ...],
         std: tuple[float, ...],
     ) -> None:
         super().__init__()
         self.model = model
-        self.maps_module = maps_module
+        self.maps_module = maps_module  # the name of the module, and the call to stop at
         self.input_size, self.mean, self.std = input_size, tuple(mean), tuple(std)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        handle = self.model.get_submodule(self.maps_module).register_forward_hook(_stop)
+        name, stop_at = self.maps_module
+        calls = 0
+
+        def stop(module: nn.Module, inputs: tuple, output: torch.Tensor) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == stop_at:
+                raise _Captured(output)
+
+        handle = self.model.get_submodule(name).register_forward_hook(stop)
         try:
             self.model(x)
         except _Captured as captured:
             return captured.output
         finally:
             handle.remove()
-        raise RuntimeError(
-            f"the forward pass did not reach '{self.maps_module}'"
-        )  # pragma: no cover
+        raise RuntimeError(f"'{name}' was not called {stop_at} times")  # pragma: no cover
 
 
 def build_torchvision_backbone(spec: str, pretrained: bool = True) -> nn.Module:

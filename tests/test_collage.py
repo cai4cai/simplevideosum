@@ -1,7 +1,15 @@
 import pytest
 import torch
 
-from simplevideosum.collage import SET3, Layout, border_width, make_collage, make_segbar
+from simplevideosum.collage import (
+    SET3,
+    Layout,
+    border_width,
+    colour_palette,
+    label_colours,
+    make_collage,
+    make_segbar,
+)
 
 
 def test_layout_matches_reference_example():
@@ -67,3 +75,30 @@ def test_collage_draws_a_coloured_border_over_the_edge_of_each_tile():
         assert collage[:, y + th // 2, x + b - 1].tolist() == colour  # inside the border
         assert collage[:, y + th // 2, x + b].tolist() == [7, 7, 7]  # picture starts after it
         assert collage[:, y + th // 2, x + tw // 2].tolist() == [7, 7, 7]
+
+
+def test_colour_palette_is_distinct_beyond_the_twelve_colours_of_set3():
+    palette = colour_palette(40)
+    assert palette.shape == (40, 3) and palette.dtype == torch.uint8
+    assert len({tuple(colour) for colour in palette.tolist()}) == 40
+    assert torch.equal(colour_palette(16)[:12], SET3) and torch.equal(
+        palette[:16], colour_palette(16)
+    )
+    assert torch.equal(colour_palette(5), SET3[:5])
+
+
+def test_label_colours_give_every_label_its_own_colour():
+    labels = torch.tensor([0, 15, 15, 3, 0])
+    colours = label_colours(labels)
+    assert colours.shape == (5, 3)
+    assert colours[0].tolist() == colours[4].tolist() == SET3[0].tolist()
+    assert colours[1].tolist() == colours[2].tolist() != colours[0].tolist()
+    assert len({tuple(c) for c in label_colours(torch.arange(16)).tolist()}) == 16
+    assert label_colours(torch.tensor([], dtype=torch.long)).shape == (0, 3)
+
+
+def test_collage_needs_one_colour_per_frame():
+    layout = Layout.fit(4, 400, 200)
+    frames = torch.zeros(4, 3, 20, 20, dtype=torch.uint8)
+    with pytest.raises(ValueError, match="one colour per frame"):
+        make_collage(frames, layout, SET3[:3])

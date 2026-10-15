@@ -68,3 +68,9 @@ def test_frames_feed_feature_extractor(reader):
     model = build_feature_extractor(pretrained=False, device="cpu")
     feats = extract_features(model, reader.read([0, 500, 1000, 1500]))
     assert feats.shape == (4, 2 * 960)  # average and max pooling of the 960 channels
+
+
+def test_sampled_indices_rejects_negative_and_nan_rates(reader):
+    for fps in (-1, float("nan")):
+        with pytest.raises(ValueError, match=">= 0"):
+            reader.sampled_indices(fps)

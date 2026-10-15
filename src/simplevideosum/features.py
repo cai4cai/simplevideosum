@@ -24,6 +24,8 @@ from simplevideosum.device import get_device
 if TYPE_CHECKING:  # TorchCodec is slow to import, and only the type is needed here
     from simplevideosum.io import VideoReader
 
+LEGACY_INPUT_SIZE = 299  # the input size of the models that do not say (see extract_features)
+
 
 def build_feature_extractor(
     pretrained: bool = True,
@@ -85,8 +87,15 @@ def extract_features(model: nn.Module, frames: torch.Tensor) -> torch.Tensor:
     if frames.ndim != 4 or frames.shape[1] != 3:
         raise ValueError(f"expected (N, 3, H, W) frames, got {tuple(frames.shape)}")
     device = next(model.parameters()).device
-    backbone = model[0]
-    x = preprocess(frames.to(device), backbone.input_size, backbone.mean, backbone.std)
+    # A model from build_feature_extractor starts with its backbone, which says how to prepare the
+    # frames; any other model gets those of InceptionV3 (299 px, ImageNet statistics).
+    backbone = model[0] if isinstance(model, nn.Sequential) else model
+    x = preprocess(
+        frames.to(device),
+        getattr(backbone, "input_size", LEGACY_INPUT_SIZE),
+        getattr(backbone, "mean", IMAGENET_MEAN),
+        getattr(backbone, "std", IMAGENET_STD),
+    )
     return model(x)
 
 

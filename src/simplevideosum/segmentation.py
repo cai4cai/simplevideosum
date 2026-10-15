@@ -104,18 +104,18 @@ def fisher_segments(
     inf = torch.tensor(float("inf"), dtype=dtype, device=device)
 
     # cost[s, e] for s < e: energy - ||sum||^2 / length. The differences between prefix sums are
-    # taken explicitly, as an expansion of the square loses precision, a block of rows at a time,
-    # as all of them together would be N x N x D numbers.
+    # taken explicitly, as an expansion of the square loses precision, a block of rows at a time
+    # and only for the columns after them, as all of them would be N x N x D numbers.
     positions = torch.arange(n_frames + 1, device=device)
-    cost = torch.empty(n_frames + 1, n_frames + 1, dtype=dtype, device=device)
+    cost = torch.full((n_frames + 1, n_frames + 1), float("inf"), dtype=dtype, device=device)
     block = max(1, _COST_CHUNK_BYTES // (cost.shape[1] * stats.sums.shape[1] * cost.element_size()))
-    for start in range(0, n_frames + 1, block):
-        rows = slice(start, start + block)
-        differences = stats.sums[None, :, :] - stats.sums[rows, None, :]  # (rows, N + 1, D)
-        span = positions[None, :] - positions[rows, None]
-        block_cost = stats.squares[None, :] - stats.squares[rows, None]
+    for start in range(0, n_frames, block):
+        rows, columns = slice(start, start + block), slice(start + 1, None)
+        differences = stats.sums[None, columns, :] - stats.sums[rows, None, :]  # (rows, columns, D)
+        span = positions[None, columns] - positions[rows, None]
+        block_cost = stats.squares[None, columns] - stats.squares[rows, None]
         block_cost = block_cost - (differences * differences).sum(dim=-1) / span.clamp(min=1)
-        cost[rows] = torch.where(span > 0, block_cost.clamp(min=0), inf)
+        cost[rows, columns] = torch.where(span > 0, block_cost.clamp(min=0), inf)
 
     best = torch.where(positions == 0, 0.0, float("inf")).to(dtype)  # F[0]
     origins = []

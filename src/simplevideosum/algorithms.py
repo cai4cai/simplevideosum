@@ -22,7 +22,8 @@ from simplevideosum.segmentation import dissect, fisher_segments, is_power_of_tw
 
 Selection = tuple[torch.Tensor, torch.Tensor]
 
-MAX_FISHER_FRAMES = 10_000  # its N x N cost matrix is 400 MB in float32
+# Its N x N cost matrix is 400 MB in float32, and building it takes about 0.6 GB more.
+MAX_FISHER_FRAMES = 10_000
 
 
 def select_time(num_frames: int, n_key_frames: int) -> Selection:

@@ -103,7 +103,7 @@ time bar plot. `python -m simplevideosum.run` is equivalent. Run
 | `-c`, `--clustering` | Clustering of the signatures: `kmedoids`, `dissection` (needs a power of 2 for `-n` and the `l2sq` distance) or `fisher` (`l2sq` distance, at most 10,000 sampled frames). Overrides the algorithm's. |
 | `-s`, `--time-smoothing` | In [0, 1]: blends the signature distances with the temporal distance between frames, 1 gives contiguous clusters. `kmedoids` only. Default: 0. |
 | `-t`, `--time-bar-plot` | Add the colour bar under the collage and a border of the same colour around each key frame (`1` enables, `0` disables, bare `-t` enables). |
-| `-f`, `--fps` | Sampling frequency in fps: key frames are chosen among the video resampled at this rate. the algorithms with signatures compute a signature for each resampled frame; `time` only needs the video length and ignores it. `0`, or a rate of at least the frame rate of the video, uses every frame. Default: 1 (`time` uses every frame). |
+| `-f`, `--fps` | Sampling frequency in fps: key frames are chosen among the video resampled at this rate. the algorithms with signatures compute a signature for each resampled frame. `0`, or a rate of at least the frame rate of the video, uses every frame. A video that lasts fewer seconds than there are key frames is sampled at every frame unless `-f` is given. Default: 1 (`time`: every frame). |
 | `-l`, `--log` | Log file to append to. Default: terminal only. |
 
 The options mirror `python -m videosum.run` from the original package, plus `-c` which makes the
@@ -115,9 +115,9 @@ The input must be a single video file for now.
 
 - **Tiles** (the collage can be a few pixels smaller than requested, as tile sizes are rounded): the largest tiles with the aspect ratio of the collage such that `n` of them fit
   in `x` by `y` pixels. Frames are resized to the tile size and placed row by row.
-- **`time` algorithm**: key frames are `n` evenly spaced indices over the whole video. No frame is
-  inspected, and only those `n` frames are decoded (`--fps` has no effect).
-- **Algorithms with signatures** (`videosum_inception`, `videosum_scda`): every frame of the video resampled at
+- **`time` algorithm**: key frames are `n` evenly spaced among the frames of the video resampled at
+  `--fps` (every frame by default). No frame is inspected, and only those `n` frames are decoded.
+- **Algorithms with signatures** (`default`, `videosum_inception`, `videosum_scda`): every frame of the video resampled at
   `--fps` gets a signature from the backbone, aggregation and normalisation (float32, computed on
   the GPU when available). The signatures are then clustered:
   - **`kmedoids`**: distances (`l2sq` or `cosine`) between signatures, min-max normalised and optionally
@@ -157,8 +157,11 @@ The input must be a single video file for now.
 - **`cosine` distance**: one minus the cosine similarity of the signatures, min-max normalised
   (and blended with the temporal distance by `-s`) like `l2sq`. With `l2` normalised pooled
   descriptors it is the mean of the cosine distances of the descriptors.
-- **Time bar plot**: each column is coloured by the key frame that is nearest in time
-  to it, and black lines mark the key frame positions.
+- **Time bar plot**: each column is coloured by the cluster of the frame at that moment of the
+  video, i.e. by the key frame that represents it (not necessarily the nearest one in time for
+  `kmedoids`), and black lines mark the key frame positions. The key frames are shown in time
+  order, each with a border of the colour of its cluster. The colours are those of ColorBrewer
+  Set3, then hues spaced by the golden angle when there are more than 12 key frames.
 
 ## Development
 

@@ -1,7 +1,10 @@
 from dataclasses import replace
+from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 import torch
+from torch import nn
 
 from simplevideosum.algorithms import CLUSTERINGS, DEFAULT_ALGORITHM, DEFAULT_FPS
 from simplevideosum.collage import SET3
@@ -38,7 +41,7 @@ def test_unknown_algorithm():
         VideoSummarizer("nope", 16, 1920, 1080)
 
 
-def test_time_algorithm_ignores_fps_and_decodes_only_key_frames(video_path, monkeypatch, caplog):
+def test_time_algorithm_honours_fps_and_decodes_only_key_frames(video_path, monkeypatch, caplog):
     requested = []
     original = VideoReader.read
 
@@ -48,9 +51,11 @@ def test_time_algorithm_ignores_fps_and_decodes_only_key_frames(video_path, monk
 
     monkeypatch.setattr(VideoReader, "read", spy)
     VideoSummarizer("time", 16, 640, 360, fps=0.5).summarize(video_path)
+    sampled = VideoReader(video_path).sampled_indices(0.5)
     assert len(requested) == 1 and len(requested[0]) == 16
-    assert requested[0][0] == 0 and requested[0][-1] == VideoReader(video_path).num_frames - 1
-    assert "ignores --fps" in caplog.text
+    assert set(requested[0]) <= set(sampled)  # evenly spaced among the frames at 0.5 fps
+    assert requested[0][0] == sampled[0] and requested[0][-1] == sampled[-1]
+    assert "ignores" not in caplog.text  # --fps is not ignored any more
 
 
 @pytest.fixture(scope="module")
@@ -109,10 +114,16 @@ def test_kmedoids_accepts_any_number_of_frames_and_time_smoothing(video_path, ra
 
 def test_time_algorithm_warns_about_ignored_options(caplog):
     VideoSummarizer("time", 16, 640, 360, fps=2, clustering="kmedoids", distance="cosine")
-    assert "ignores --fps and --clustering and --distance" in caplog.text
+    assert "ignores --clustering and --distance" in caplog.text
 
 
-def test_default_algorithm_with_the_pretrained_default_backbone_end_to_end(video_path):
+def test_default_algorithm_with_the_pretrained_default_backbone_end_to_end(request, video_path):
+    from simplevideosum.backbones import DEFAULT_BACKBONE, torchvision_weights
+
+    weights_file = Path(torch.hub.get_dir()) / "checkpoints"
+    weights_file /= Path(urlparse(torchvision_weights(DEFAULT_BACKBONE)[1].url).path).name
+    if not weights_file.exists() and not request.config.getoption("--pretrained-backbones"):
+        pytest.skip("the default weights are not in the torch cache: --pretrained-backbones")
     storyboard = VideoSummarizer(DEFAULT_ALGORITHM, 16, 640, 360, fps=0.5).summarize(video_path)
     assert tuple(storyboard.shape) == (3, 360, 640)  # (the weights stay in the torch cache)
 
@@ -230,3 +241,45 @@ def test_default_sampling_decodes_one_candidate_per_second(
         video_path
     )
     assert sum(seen[:-1]) == len(VideoReader(video_path).sampled_indices(1.0))  # ~128 s of video
+
+
+class Tiny(nn.Module):
+    """Stands in for a feature extractor: 2-d signatures from the colours of 8-pixel frames."""
+
+    def __init__(self):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(1))
+
+    input_size, mean, std = 8, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)
+
+    def forward(self, x):
+        return x.mean(dim=(2, 3))[:, :2] * self.weight
+
+
+def test_a_video_shorter_than_the_key_frames_in_seconds_is_sampled_at_every_frame(
+    video_path, caplog
+):
+    seconds = int(VideoReader(video_path).duration)  # about 127 s: 1 Hz gives fewer than 130
+    summarizer = VideoSummarizer(DEFAULT_ALGORITHM, seconds + 3, 640, 360, feature_extractor=Tiny())
+    layout = summarizer.layout
+    storyboard = summarizer.summarize(video_path)
+    assert tuple(storyboard.shape) == (
+        3,
+        layout.tiles_per_col * layout.tile_height,
+        layout.tiles_per_row * layout.tile_width,
+    )
+    assert "using every frame" in caplog.text
+
+
+def test_an_explicit_fps_is_never_raised_for_lack_of_frames(video_path):
+    summarizer = VideoSummarizer(
+        DEFAULT_ALGORITHM, 40, 640, 360, fps=0.1, feature_extractor=Tiny()
+    )  # 12 frames only
+    with pytest.raises(ValueError, match="cannot split"):
+        summarizer.summarize(video_path)
+
+
+def test_time_segmentation_is_a_deprecated_name_of_time_bar_plot():
+    with pytest.warns(DeprecationWarning, match="time_bar_plot"):
+        summarizer = VideoSummarizer("time", 4, 640, 360, time_segmentation=True)
+    assert summarizer.time_bar_plot is True

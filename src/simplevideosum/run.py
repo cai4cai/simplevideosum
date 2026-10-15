@@ -72,8 +72,8 @@ HELP = {
     "moment of the video (1 to enable, 0 to disable; a bare -t enables it). Default: 0.",
     "-f": "Sampling frequency in frames per second. Key frames are selected among the video "
     "resampled at this rate (a signature is computed for each of them). 0, or a rate of at "
-    "least the frame rate of the video, uses every frame. Ignored by the time algorithm, which "
-    "only needs the video length. "
+    "least the frame rate of the video, uses every frame. A video that lasts fewer seconds than "
+    "there are key frames is sampled at every frame unless this is given. "
     f"Default: {DEFAULT_FPS:g} (every frame for time).",
     "-l": "Path of a log file to append to. Default: log to the terminal only.",
 }
@@ -100,6 +100,15 @@ def build_parser() -> argparse.ArgumentParser:
     optional.add_argument(
         "-t", "--time-bar-plot", nargs="?", const=1, default=0, type=int, help=HELP["-t"]
     )
+    optional.add_argument(  # the former name of --time-bar-plot, not shown in the usage
+        "--time-segmentation",
+        dest="time_bar_plot",
+        nargs="?",
+        const=1,
+        default=argparse.SUPPRESS,
+        type=int,
+        help=argparse.SUPPRESS,
+    )
     for name in PIPELINE_COMPONENTS:
         optional.add_argument(f"--{name}", default=None, type=str, help=HELP[f"--{name}"])
     optional.add_argument("-c", "--clustering", default=None, type=str, help=HELP["-c"])
@@ -125,7 +134,7 @@ def validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     for name in ("nframes", "width", "height"):
         if getattr(args, name) < 1:
             parser.error(f"--{name} must be >= 1")
-    if args.fps is not None and args.fps < 0:
+    if args.fps is not None and not args.fps >= 0:  # also NaN
         parser.error("--fps must be >= 0")
     try:
         resolve(args.algo, args.clustering, args.nframes, args.time_smoothing, **components(args))

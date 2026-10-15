@@ -1,11 +1,12 @@
 """Storyboard layout and rendering."""
 
+import colorsys
 from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
 
-# ColorBrewer "Set3" qualitative palette, one colour per key frame (cycled if needed).
+# ColorBrewer "Set3" qualitative palette, the first colours of the key frames (see colour_palette).
 SET3 = torch.tensor(
     [
         (141, 211, 199), (255, 255, 179), (190, 186, 218), (251, 128, 114),
@@ -50,9 +51,22 @@ def border_width(layout: Layout) -> int:
     return max(2, layout.tile_height // 90)
 
 
+def colour_palette(n: int) -> torch.Tensor:
+    """(n, 3) uint8 colours, distinct for any n: the 12 of Set3, then hues spaced by the golden
+    angle. The first colours do not depend on n."""
+    if n <= len(SET3):
+        return SET3[:n]
+    hues = (0.05 + 0.6180339887 * torch.arange(n - len(SET3))) % 1.0
+    extra = [colorsys.hsv_to_rgb(float(hue), 0.6, 0.9) for hue in hues]
+    return torch.cat([SET3, (torch.tensor(extra) * 255).round().to(torch.uint8)])
+
+
 def label_colours(labels: torch.Tensor) -> torch.Tensor:
-    """The (N, 3) uint8 colours of the labels, cycling through the palette."""
-    return SET3[torch.as_tensor(labels).cpu() % len(SET3)]
+    """The (N, 3) uint8 colours of the labels (non-negative integers), one per label."""
+    labels = torch.as_tensor(labels).cpu()
+    if labels.numel() == 0:
+        return SET3[:0]
+    return colour_palette(int(labels.max()) + 1)[labels]
 
 
 def make_collage(
@@ -65,6 +79,8 @@ def make_collage(
     """
     if frames.shape[0] > layout.capacity:
         raise ValueError("more frames than tiles in the layout")
+    if colours is not None and len(colours) != frames.shape[0]:
+        raise ValueError(f"expected one colour per frame, got {len(colours)} for {len(frames)}")
     collage = torch.zeros(
         3, layout.tiles_per_col * layout.tile_height, layout.tiles_per_row * layout.tile_width,
         dtype=torch.uint8,

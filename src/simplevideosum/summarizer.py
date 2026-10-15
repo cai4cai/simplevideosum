@@ -1,6 +1,7 @@
 """Video to storyboard summarisation."""
 
 import logging
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -31,7 +32,9 @@ class VideoSummarizer:
     ``backbone``, ``aggregation``, ``normalisation``, ``distance`` and ``clustering`` override its
     components, and ``time_smoothing`` tunes the clustering, for the algorithms that compare frame
     signatures. ``feature_extractor`` replaces the pre-trained model that would be built from the
-    backbone, aggregation and normalisation.
+    backbone, aggregation and normalisation. ``fps`` is the sampling frequency of the video (0:
+    every frame), by default that of the algorithm; ``time_segmentation`` is the deprecated name
+    of ``time_bar_plot``.
     """
 
     def __init__(
@@ -50,7 +53,15 @@ class VideoSummarizer:
         aggregation: str | None = None,
         normalisation: str | None = None,
         distance: str | None = None,
+        time_segmentation: bool | None = None,
     ) -> None:
+        if time_segmentation is not None:
+            warnings.warn(
+                "time_segmentation is deprecated, use time_bar_plot",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            time_bar_plot = time_segmentation
         components = {
             "backbone": backbone,
             "aggregation": aggregation,
@@ -63,9 +74,10 @@ class VideoSummarizer:
         self.algo = algo
         self.n_frames = n_frames
         self.fps = fps if fps is not None else self.algorithm.fps
+        self.fps_given = fps is not None
         self.time_smoothing = time_smoothing
         if not self.algorithm.uses_signatures:
-            given = {"fps": fps, "clustering": clustering, **components}
+            given = {"clustering": clustering, **components}
             ignored = [f"--{name}" for name, value in given.items() if value]
             if ignored:
                 logger.warning("The '%s' algorithm ignores %s.", algo, " and ".join(ignored))
@@ -76,10 +88,14 @@ class VideoSummarizer:
 
     def _select(self, reader: VideoReader) -> tuple[Sequence[int], torch.Tensor, torch.Tensor]:
         """Returns the candidate frame indices, the key frame positions in them and the labels."""
-        if not self.algorithm.uses_signatures:
-            candidates = range(reader.num_frames)
-            return (candidates, *self.algorithm.select(len(candidates), self.n_frames))
         candidates = reader.sampled_indices(self.fps)
+        if not self.fps_given and self.fps and len(candidates) < self.n_frames:
+            # a video that lasts fewer seconds than there are key frames, at the rate of the
+            # algorithm: every frame is a candidate rather than failing for lack of them
+            logger.info("Only %d frames at %g fps: using every frame.", len(candidates), self.fps)
+            candidates = reader.sampled_indices(0)
+        if not self.algorithm.uses_signatures:
+            return (candidates, *self.algorithm.select(len(candidates), self.n_frames))
         limit = self.clustering.max_frames
         if limit is not None and len(candidates) > limit:  # fail before the costly signatures
             raise ValueError(

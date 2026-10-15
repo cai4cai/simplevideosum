@@ -82,35 +82,46 @@ def test_maps_of_the_torchvision_families(model_name, channels, side):
     assert extract_features(model, frames).shape == (2, channels)  # frames resized to its size
 
 
-def test_layers_after_the_maps_do_not_run(monkeypatch):
+def test_layers_after_the_maps_do_not_run():
     backbone = build_backbone("resnet18", pretrained=False)
     backbone.model.fc.register_forward_hook(lambda *args: pytest.fail("the classifier ran"))
-    x = torch.randn(1, 3, 224, 224)
-    manual = backbone.model.layer4(
-        backbone.model.layer3(
-            backbone.model.layer2(
-                backbone.model.layer1(
-                    backbone.model.maxpool(
-                        backbone.model.relu(backbone.model.bn1(backbone.model.conv1(x)))
-                    )
-                )
-            )
-        )
-    )
-    assert torch.allclose(backbone(x), manual, atol=1e-5)
+    seen = []
+    backbone.model.layer4.register_forward_hook(lambda module, inputs, out: seen.append(out))
+    maps = backbone(torch.randn(1, 3, 224, 224))
+    assert maps.shape == (1, 512, 7, 7) and torch.equal(maps, seen[-1])
+
+
+class Twice(nn.Module):
+    """A conv block applied twice by the same module: its last call gives the final maps."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 3, kernel_size=3, padding=1)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+
+    def forward(self, x):
+        return self.pool(self.conv(self.conv(x))).flatten(1)
+
+
+def test_the_forward_pass_stops_at_the_last_call_of_a_reused_module():
+    from simplevideosum.backbones import TorchvisionMaps, find_maps_module
+
+    model = Twice().eval()
+    assert find_maps_module(model, 8) == ("conv", 2)
+    maps = TorchvisionMaps(model, ("conv", 2), 8, (0, 0, 0), (1, 1, 1))
+    x = torch.randn(1, 3, 8, 8)
+    assert torch.allclose(maps(x), model.conv(model.conv(x)), atol=1e-6)
 
 
 @pytest.mark.parametrize(
     "spec",
     [
-        "vit_b_16",
-        "ViT_B_16_Weights.IMAGENET1K_V1",
-        "ViT_B_16_Weights.DEFAULT",
-        "squeezenet1_1",
-        "SqueezeNet1_1_Weights.IMAGENET1K_V1",
+        "FCN_ResNet50_Weights.COCO_WITH_VOC_LABELS_V1",  # segmentation
+        "ResNet50_QuantizedWeights.IMAGENET1K_FBGEMM_V1",  # quantised
+        "Raft_Large_Weights.DEFAULT",  # optical flow
     ],
 )
-def test_vision_transformers_and_squeezenet_are_not_supported(spec):
+def test_weights_that_are_not_those_of_a_classification_model_are_rejected(spec):
     with pytest.raises(ValueError, match="not supported"):
         validate_backbone(spec)
 

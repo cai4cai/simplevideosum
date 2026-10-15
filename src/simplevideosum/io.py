@@ -40,7 +40,7 @@ class VideoReader:
 
     def sampled_indices(self, fps: float | None = None) -> list[int]:
         """Frame indices of the video resampled at ``fps`` (all frames if None, 0 or >= native)."""
-        if fps is not None and fps < 0:
+        if fps is not None and not fps >= 0:  # also NaN
             raise ValueError("fps must be >= 0")
         if not fps or fps >= self.fps:
             return list(range(self.num_frames))

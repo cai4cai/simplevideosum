@@ -22,10 +22,12 @@ Frame selection is made of explicit components, like in the original package but
    resized and normalised as the weights require. The vision transformers (`vit_*`) and SqueezeNet
    are not supported, and DenseNet maps are taken before its last ReLU.
 2. **aggregation** (`--aggregation`): how the activations are pooled into one or more descriptors
-   per frame: `avgpool` (global average pooling, 960-d for the default backbone), `scda` (Selective
-   Convolutional Descriptor Aggregation, average and max pooled, 2 x 960-d), `scda_thresh`
-   (`scda` keeping every position above the threshold, with no morphology) or `scda_fill` (`scda`
-   with the holes of the object mask filled, as in videosum).
+   per frame: `avgpool` (global average pooling, 960-d for the default backbone), `avgcatmaxpool`
+   (global average and max pooling, concatenated: SCDA without the selection of positions,
+   2 x 960-d), `scda` (Selective Convolutional Descriptor Aggregation, average and max pooled over
+   the selected positions, 2 x 960-d), `scda_thresh` (`scda` keeping every position above the
+   threshold, with no morphology) or `scda_fill` (`scda` with the holes of the object mask filled,
+   as in videosum).
 3. **normalisation** (`--normalisation`): applied to each pooled descriptor before they are
    concatenated into the frame signature: `none` or `l2`.
 4. **distance** (`--distance`): between signatures: `l2sq` (squared L2) or `cosine`.

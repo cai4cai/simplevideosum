@@ -45,7 +45,8 @@ HELP = {
     "the torchvision documentation). The frames are resized and normalised as the weights "
     "require.",
     "--aggregation": "How the activations are pooled into descriptors; overrides the algorithm's. "
-    "Available: avgpool (global average pooling), scda (Selective Convolutional Descriptor "
+    "Available: avgpool (global average pooling), avgcatmaxpool (global average and max "
+    "pooling, concatenated), scda (Selective Convolutional Descriptor "
     "Aggregation: average and max pooling of the descriptors of the largest connected component "
     "above the activation threshold), scda_thresh (scda keeping every position above the "
     "threshold, no morphology), scda_fill (scda with the holes of the object mask filled, as in "

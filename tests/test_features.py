@@ -84,3 +84,20 @@ def test_scda_aggregation_variants():
         "scda_fill": (True, True),  # videosum
     }
 
+
+def test_avgcatmaxpool_concatenates_the_global_average_and_max_of_the_maps():
+    from simplevideosum.aggregation import AGGREGATIONS
+
+    maps = torch.randn(3, 5, 4, 6)
+    pooled = AGGREGATIONS["avgcatmaxpool"]()(maps)
+    assert pooled.shape == (3, 2, 5)
+    assert torch.allclose(pooled[:, 0], maps.mean(dim=(2, 3)), atol=1e-6)
+    assert torch.equal(pooled[:, 1], maps.amax(dim=(2, 3)))
+
+    model = build_feature_extractor(
+        pretrained=False, device="cpu", aggregation="avgcatmaxpool", normalisation="l2"
+    )
+    feats = extract_features(model, torch.randint(0, 255, (2, 3, 64, 64), dtype=torch.uint8))
+    assert feats.shape == (2, 2 * SIGNATURE_DIM)  # [average, max], each of unit norm
+    assert torch.allclose(feats[:, :SIGNATURE_DIM].norm(dim=1), torch.ones(2), atol=1e-4)
+    assert torch.allclose(feats[:, SIGNATURE_DIM:].norm(dim=1), torch.ones(2), atol=1e-4)

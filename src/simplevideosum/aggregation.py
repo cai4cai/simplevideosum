@@ -22,6 +22,14 @@ class GlobalAveragePool(nn.Module):
         return activations.mean(dim=(2, 3)).unsqueeze(1)
 
 
+class GlobalAverageMaxPool(nn.Module):
+    """(N, C, H, W) activations to their (N, 2, C) spatial mean and max: SCDA without the
+    selection of the positions, so that it describes the whole frame."""
+
+    def forward(self, activations: torch.Tensor) -> torch.Tensor:
+        return torch.stack([activations.mean(dim=(2, 3)), activations.amax(dim=(2, 3))], dim=1)
+
+
 class L2Normalise(nn.Module):
     """Scale every pooled descriptor to unit L2 norm."""
 
@@ -34,6 +42,7 @@ class L2Normalise(nn.Module):
 # which the paper does not do but the videosum package does.
 AGGREGATIONS: dict[str, Callable[[], nn.Module]] = {
     "avgpool": GlobalAveragePool,
+    "avgcatmaxpool": GlobalAverageMaxPool,
     "scda": SCDA,
     "scda_thresh": partial(SCDA, largest_component=False),
     "scda_fill": partial(SCDA, fill_holes=True),

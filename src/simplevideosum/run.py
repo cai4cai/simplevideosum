@@ -20,6 +20,7 @@ from simplevideosum.algorithms import (
     COMPONENTS,
     DEFAULT_ALGORITHM,
     DEFAULT_CLUSTERING,
+    DEFAULT_FPS,
     PIPELINE_COMPONENTS,
     resolve,
 )
@@ -70,8 +71,10 @@ HELP = {
     "-t": "Add a colour bar below the collage showing which key frame represents each "
     "moment of the video (1 to enable, 0 to disable; a bare -t enables it). Default: 0.",
     "-f": "Sampling frequency in frames per second. Key frames are selected among the video "
-    "resampled at this rate (inception computes a signature for each of them). Ignored by the "
-    "time algorithm, which only needs the video length. Default: use every frame of the video.",
+    "resampled at this rate (a signature is computed for each of them). 0, or a rate of at "
+    "least the frame rate of the video, uses every frame. Ignored by the time algorithm, which "
+    "only needs the video length. "
+    f"Default: {DEFAULT_FPS:g} (every frame for time).",
     "-l": "Path of a log file to append to. Default: log to the terminal only.",
 }
 
@@ -122,8 +125,8 @@ def validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     for name in ("nframes", "width", "height"):
         if getattr(args, name) < 1:
             parser.error(f"--{name} must be >= 1")
-    if args.fps is not None and args.fps <= 0:
-        parser.error("--fps must be > 0")
+    if args.fps is not None and args.fps < 0:
+        parser.error("--fps must be >= 0")
     try:
         resolve(args.algo, args.clustering, args.nframes, args.time_smoothing, **components(args))
     except ValueError as error:

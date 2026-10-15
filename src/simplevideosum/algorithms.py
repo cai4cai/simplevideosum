@@ -104,6 +104,10 @@ CLUSTERINGS: dict[str, Clustering] = {
 DEFAULT_CLUSTERING = "fisher"
 
 
+# Sampling frequency of the algorithms with signatures when --fps is not given; 0 is every frame.
+DEFAULT_FPS = 1.0
+
+
 @dataclass(frozen=True)
 class Algorithm:
     """A named configuration of the components of frame selection.
@@ -112,8 +116,8 @@ class Algorithm:
     ``backbone`` (convolutional activations), the ``aggregation`` (pooled descriptors) and the
     ``normalisation`` of each of them, which gives its signature; signatures are compared with
     the ``distance`` and grouped by the ``clustering`` method. Each component can be overridden
-    on the command line. The others select from the video length alone (``select``) and ignore
-    all of this.
+    on the command line, as can the ``fps`` at which the video is sampled. The others select from
+    the video length alone (``select``) and ignore all of this.
     """
 
     select: Callable[[int, int], Selection] | None = None
@@ -122,6 +126,7 @@ class Algorithm:
     normalisation: str = DEFAULT_NORMALISATION
     distance: str = "l2sq"
     clustering: str = DEFAULT_CLUSTERING
+    fps: float = DEFAULT_FPS  # of the video that the signatures describe; 0: every frame
 
     @property
     def uses_signatures(self) -> bool:
@@ -147,7 +152,7 @@ ALGORITHMS: dict[str, Algorithm] = {
     # and max pooled activations of MobileNetV3-Large, L2-normalised
     DEFAULT_ALGORITHM: Algorithm(),
     # evenly spaced frames, no features
-    "time": Algorithm(select=select_time),
+    "time": Algorithm(select=select_time, fps=0),  # every frame is a candidate
     # videosum "inception": globally pooled InceptionV3 activations, k-medoids on squared L2
     # distances
     "videosum_inception": Algorithm(

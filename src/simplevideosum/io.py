@@ -39,10 +39,10 @@ class VideoReader:
         return self._decoder.metadata.duration_seconds
 
     def sampled_indices(self, fps: float | None = None) -> list[int]:
-        """Frame indices of the video resampled at ``fps`` (all frames if None or >= native)."""
-        if fps is not None and fps <= 0:
-            raise ValueError("fps must be > 0")
-        if fps is None or fps >= self.fps:
+        """Frame indices of the video resampled at ``fps`` (all frames if None, 0 or >= native)."""
+        if fps is not None and fps < 0:
+            raise ValueError("fps must be >= 0")
+        if not fps or fps >= self.fps:
             return list(range(self.num_frames))
         step = self.fps / fps
         count = max(1, int(self.num_frames / step))

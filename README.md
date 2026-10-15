@@ -103,7 +103,7 @@ time segmentation bar. `python -m simplevideosum.run` is equivalent. Run
 | `-c`, `--clustering` | Clustering of the signatures: `kmedoids`, `dissection` (needs a power of 2 for `-n` and the `l2sq` distance) or `fisher` (`l2sq` distance, at most 10,000 sampled frames). Overrides the algorithm's. |
 | `-s`, `--time-smoothing` | In [0, 1]: blends the signature distances with the temporal distance between frames, 1 gives contiguous clusters. `kmedoids` only. Default: 0. |
 | `-t`, `--time-segmentation` | Add the colour bar under the collage and a border of the same colour around each key frame (`1` enables, `0` disables, bare `-t` enables). |
-| `-f`, `--fps` | Sampling frequency in fps: key frames are chosen among the video resampled at this rate. the algorithms with signatures compute a signature for each resampled frame; `time` only needs the video length and ignores it. Default: every frame. |
+| `-f`, `--fps` | Sampling frequency in fps: key frames are chosen among the video resampled at this rate. the algorithms with signatures compute a signature for each resampled frame; `time` only needs the video length and ignores it. `0`, or a rate of at least the frame rate of the video, uses every frame. Default: 1 (`time` uses every frame). |
 | `-l`, `--log` | Log file to append to. Default: terminal only. |
 
 The options mirror `python -m videosum.run` from the original package, plus `-c` which makes the

@@ -62,7 +62,7 @@ class VideoSummarizer:
         )
         self.algo = algo
         self.n_frames = n_frames
-        self.fps = fps
+        self.fps = fps if fps is not None else self.algorithm.fps
         self.time_smoothing = time_smoothing
         if not self.algorithm.uses_signatures:
             given = {"fps": fps, "clustering": clustering, **components}

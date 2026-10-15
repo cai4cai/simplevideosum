@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 import torch
 
-from simplevideosum.algorithms import CLUSTERINGS, DEFAULT_ALGORITHM
+from simplevideosum.algorithms import CLUSTERINGS, DEFAULT_ALGORITHM, DEFAULT_FPS
 from simplevideosum.collage import SET3
 from simplevideosum.features import build_feature_extractor
 from simplevideosum.io import VideoReader
@@ -26,9 +26,11 @@ def test_fps_resamples_the_video(video_path):
     indices = reader.sampled_indices(fps=2)
     assert len(indices) == int(reader.duration * 2)
     assert indices[0] == 0 and indices[-1] < reader.num_frames
-    assert reader.sampled_indices(None) == list(range(reader.num_frames))
-    with pytest.raises(ValueError):
-        reader.sampled_indices(0)
+    everything = list(range(reader.num_frames))
+    assert reader.sampled_indices(None) == reader.sampled_indices(0) == everything
+    assert reader.sampled_indices(1000) == everything  # at least the frame rate of the video
+    with pytest.raises(ValueError, match=">= 0"):
+        reader.sampled_indices(-1)
 
 
 def test_unknown_algorithm():
@@ -199,3 +201,32 @@ def test_kmedoids_storyboard_is_chronological_with_matching_borders(
         corner = storyboard[:, row * layout.tile_height, col * layout.tile_width]
         assert corner.tolist() == SET3[k].tolist()
         assert corner.tolist() in bar.T.tolist()  # the border colour is a colour of the bar
+
+
+def test_algorithms_with_signatures_sample_the_video_at_one_hertz_by_default(caplog):
+    assert DEFAULT_FPS == 1.0
+    assert VideoSummarizer(DEFAULT_ALGORITHM, 8, 640, 360).fps == DEFAULT_FPS
+    assert VideoSummarizer("videosum_scda", 8, 640, 360).fps == DEFAULT_FPS
+    assert VideoSummarizer("videosum_inception", 8, 640, 360, fps=4).fps == 4  # explicit wins
+    assert VideoSummarizer("time", 8, 640, 360).fps == 0  # every frame is a candidate, no warning
+    assert (
+        VideoSummarizer(DEFAULT_ALGORITHM, 8, 640, 360, fps=0).fps == 0
+    )  # explicit 0: every frame
+    assert "ignores" not in caplog.text
+
+
+def test_default_sampling_decodes_one_candidate_per_second(
+    video_path, random_extractor, monkeypatch
+):
+    seen = []
+    original = VideoReader.read
+
+    def spy(self, indices):
+        seen.append(len(indices))
+        return original(self, indices)
+
+    monkeypatch.setattr(VideoReader, "read", spy)
+    VideoSummarizer(DEFAULT_ALGORITHM, 8, 640, 360, feature_extractor=random_extractor).summarize(
+        video_path
+    )
+    assert sum(seen[:-1]) == len(VideoReader(video_path).sampled_indices(1.0))  # ~128 s of video

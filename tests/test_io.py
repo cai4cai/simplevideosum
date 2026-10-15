@@ -24,6 +24,14 @@ def test_read_returns_uint8_nchw(reader):
     assert frames.dtype == torch.uint8
 
 
+def test_threaded_decoding_gives_the_same_frames_as_single_threaded(video_path, reader):
+    from torchcodec.decoders import VideoDecoder
+
+    indices = [0, 7, 500, 1500, 3826]
+    single = VideoDecoder(video_path, num_ffmpeg_threads=1).get_frames_at(indices).data
+    assert torch.equal(reader.read(indices), single)
+
+
 class FakeDecoder:
     """Stands in for a TorchCodec decoder with 100 frames and the given metadata."""
 

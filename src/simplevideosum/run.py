@@ -18,6 +18,7 @@ import torch
 from simplevideosum.algorithms import (
     ALGORITHMS,
     COMPONENTS,
+    DEFAULT_ALGORITHM,
     DEFAULT_CLUSTERING,
     PIPELINE_COMPONENTS,
     resolve,
@@ -34,10 +35,12 @@ HELP = {
     "-a": "Algorithm for frame selection: a named configuration of the components below. "
     "Available: "
     + ", ".join(ALGORITHMS)
-    + ". time picks evenly spaced frames (no feature extraction, ignores the components), "
-    "videosum_inception is the globally pooled activations of the backbone compared with squared "
-    "L2, videosum_scda is SCDA (Wei et al., 2017) compared with the cosine distance, as in the "
-    "videosum package.",
+    + f". Default: {DEFAULT_ALGORITHM}, the default components: MobileNetV3-Large, average and "
+    "max pooling, L2 normalisation, squared L2 distance and temporally contiguous segments of "
+    "least total cost (fisher). time picks evenly spaced frames (no feature extraction, ignores "
+    "the components). videosum_inception and videosum_scda reproduce the videosum package: "
+    "InceptionV3, k-medoids, and either the globally pooled activations compared with squared "
+    "L2 or SCDA (Wei et al., 2017) compared with the cosine distance.",
     "--backbone": "Network producing the convolutional activations; overrides the algorithm's. "
     "Available: " + ", ".join(COMPONENTS["backbone"]) + ", the name of a torchvision "
     "classification model (e.g. mobilenet_v3_large, for its default weights), or its weights "
@@ -90,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     required.add_argument("-n", "--nframes", required=True, type=int, help=HELP["-n"])
     required.add_argument("-x", "--width", required=True, type=int, help=HELP["-x"])
     required.add_argument("-y", "--height", required=True, type=int, help=HELP["-y"])
-    required.add_argument("-a", "--algo", required=True, type=str, help=HELP["-a"])
+    optional.add_argument("-a", "--algo", default=DEFAULT_ALGORITHM, type=str, help=HELP["-a"])
     optional.add_argument(
         "-t", "--time-segmentation", nargs="?", const=1, default=0, type=int, help=HELP["-t"]
     )

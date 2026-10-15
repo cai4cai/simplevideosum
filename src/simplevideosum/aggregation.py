@@ -48,3 +48,5 @@ AGGREGATIONS: dict[str, Callable[[], nn.Module]] = {
     "scda_fill": partial(SCDA, fill_holes=True),
 }
 NORMALISATIONS: dict[str, Callable[[], nn.Module]] = {"none": nn.Identity, "l2": L2Normalise}
+DEFAULT_AGGREGATION = "avgcatmaxpool"
+DEFAULT_NORMALISATION = "l2"

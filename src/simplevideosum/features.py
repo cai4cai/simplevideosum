@@ -6,7 +6,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
+from simplevideosum.aggregation import (
+    AGGREGATIONS,
+    DEFAULT_AGGREGATION,
+    DEFAULT_NORMALISATION,
+    NORMALISATIONS,
+)
 from simplevideosum.backbones import (
     DEFAULT_BACKBONE,
     IMAGENET_MEAN,
@@ -24,15 +29,15 @@ def build_feature_extractor(
     pretrained: bool = True,
     device: str | torch.device | None = None,
     backbone: str = DEFAULT_BACKBONE,
-    aggregation: str = "avgpool",
-    normalisation: str = "none",
+    aggregation: str = DEFAULT_AGGREGATION,
+    normalisation: str = DEFAULT_NORMALISATION,
 ) -> nn.Module:
     """Model mapping uint8 (N, 3, H, W) frames to (N, D) signatures, in three steps: the
     ``backbone`` (see ``backbones``) gives convolutional activations, the ``aggregation`` pools
     them into one or more descriptors per frame and the ``normalisation`` is applied to each (see
-    ``aggregation`` module); the descriptors are then concatenated. With the defaults, this is the
-    960-d globally average pooled activations of MobileNetV3-Large. The frames are resized
-    and normalised for the backbone by ``extract_features``.
+    ``aggregation`` module); the descriptors are then concatenated. With the defaults, this is
+    the average and max pooled activations of MobileNetV3-Large, each of unit norm (2 x 960-d).
+    The frames are resized and normalised for the backbone by ``extract_features``.
 
     ``pretrained=True`` uses the pre-trained weights, downloaded on first use (about 100 MB for
     InceptionV3, 85 MB for DINOv2) to the torch hub cache (``~/.cache/torch/hub/checkpoints``)

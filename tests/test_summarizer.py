@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 import torch
 
-from simplevideosum.algorithms import CLUSTERINGS
+from simplevideosum.algorithms import CLUSTERINGS, DEFAULT_ALGORITHM
 from simplevideosum.collage import SET3
 from simplevideosum.features import build_feature_extractor
 from simplevideosum.io import VideoReader
@@ -110,15 +110,9 @@ def test_time_algorithm_warns_about_ignored_options(caplog):
     assert "ignores --fps and --clustering and --distance" in caplog.text
 
 
-def test_pretrained_default_backbone_end_to_end(video_path, tmp_path):
-    original_dir = torch.hub.get_dir()
-    torch.hub.set_dir(str(tmp_path))  # the weights are downloaded here, and go with the test
-    try:
-        summarizer = VideoSummarizer("videosum_inception", 16, 640, 360, fps=0.5)
-        storyboard = summarizer.summarize(video_path)
-    finally:
-        torch.hub.set_dir(original_dir)
-    assert tuple(storyboard.shape) == (3, 360, 640)
+def test_default_algorithm_with_the_pretrained_default_backbone_end_to_end(video_path):
+    storyboard = VideoSummarizer(DEFAULT_ALGORITHM, 16, 640, 360, fps=0.5).summarize(video_path)
+    assert tuple(storyboard.shape) == (3, 360, 640)  # (the weights stay in the torch cache)
 
 
 def test_scda_algorithm_clusters_scda_signatures(video_path):

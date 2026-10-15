@@ -9,7 +9,12 @@ from dataclasses import dataclass, replace
 
 import torch
 
-from simplevideosum.aggregation import AGGREGATIONS, NORMALISATIONS
+from simplevideosum.aggregation import (
+    AGGREGATIONS,
+    DEFAULT_AGGREGATION,
+    DEFAULT_NORMALISATION,
+    NORMALISATIONS,
+)
 from simplevideosum.backbones import ALIAS_NAMES, DEFAULT_BACKBONE, validate_backbone
 from simplevideosum.distances import DISTANCES
 from simplevideosum.kmedoids import MAX_FRAMES, kmedoids
@@ -96,7 +101,7 @@ CLUSTERINGS: dict[str, Clustering] = {
         select_optimal_segments, distances=("l2sq",), max_frames=MAX_FISHER_FRAMES
     ),
 }
-DEFAULT_CLUSTERING = "kmedoids"
+DEFAULT_CLUSTERING = "fisher"
 
 
 @dataclass(frozen=True)
@@ -113,8 +118,8 @@ class Algorithm:
 
     select: Callable[[int, int], Selection] | None = None
     backbone: str = DEFAULT_BACKBONE
-    aggregation: str = "avgpool"
-    normalisation: str = "none"
+    aggregation: str = DEFAULT_AGGREGATION
+    normalisation: str = DEFAULT_NORMALISATION
     distance: str = "l2sq"
     clustering: str = DEFAULT_CLUSTERING
 
@@ -136,16 +141,28 @@ COMPONENTS: dict[str, tuple[str, ...]] = {
 PIPELINE_COMPONENTS = tuple(name for name in COMPONENTS if name != "clustering")
 
 # Algorithms available from the command line (-a): named configurations of the components.
+DEFAULT_ALGORITHM = "default"
 ALGORITHMS: dict[str, Algorithm] = {
+    # the default components: temporally contiguous segments of least total cost of the average
+    # and max pooled activations of MobileNetV3-Large, L2-normalised
+    DEFAULT_ALGORITHM: Algorithm(),
     # evenly spaced frames, no features
     "time": Algorithm(select=select_time),
-    # videosum "inception": globally pooled activations (of the default backbone, InceptionV3 in
-    # videosum), k-medoids on squared L2 distances
-    "videosum_inception": Algorithm(),
-    # videosum "scda": SCDA (Wei et al., 2017), k-medoids on cosine distances. Unlike the paper,
-    # the holes of the selection mask are filled and the pooled descriptors are not L2-normalised
-    # (the paper's version is --aggregation scda --normalisation l2)
-    "videosum_scda": Algorithm(aggregation="scda_fill", distance="cosine"),
+    # videosum "inception": globally pooled InceptionV3 activations, k-medoids on squared L2
+    # distances
+    "videosum_inception": Algorithm(
+        backbone="inceptionv3", aggregation="avgpool", normalisation="none", clustering="kmedoids"
+    ),
+    # videosum "scda": SCDA (Wei et al., 2017) of InceptionV3, k-medoids on cosine distances.
+    # Unlike the paper, the holes of the selection mask are filled and the pooled descriptors are
+    # not L2-normalised (the paper's version is --aggregation scda --normalisation l2)
+    "videosum_scda": Algorithm(
+        backbone="inceptionv3",
+        aggregation="scda_fill",
+        normalisation="none",
+        distance="cosine",
+        clustering="kmedoids",
+    ),
 }
 
 

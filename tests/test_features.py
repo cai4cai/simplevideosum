@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch.nn.functional as F
 
 from simplevideosum.features import (
     build_feature_extractor,
@@ -9,13 +10,15 @@ from simplevideosum.features import (
 )
 from simplevideosum.io import VideoReader
 
-SIGNATURE_DIM = 960  # MobileNetV3-Large, the default backbone
+SIGNATURE_DIM = 960  # MobileNetV3-Large, the default backbone: its number of channels
 FEATURE_MAP_SIZE = 7
 
 
 @pytest.fixture(scope="module")
 def model():
-    return build_feature_extractor(pretrained=False, device="cpu")
+    return build_feature_extractor(
+        pretrained=False, device="cpu", aggregation="avgpool", normalisation="none"
+    )
 
 
 def test_preprocess_resizes_and_normalises():
@@ -101,3 +104,12 @@ def test_avgcatmaxpool_concatenates_the_global_average_and_max_of_the_maps():
     assert feats.shape == (2, 2 * SIGNATURE_DIM)  # [average, max], each of unit norm
     assert torch.allclose(feats[:, :SIGNATURE_DIM].norm(dim=1), torch.ones(2), atol=1e-4)
     assert torch.allclose(feats[:, SIGNATURE_DIM:].norm(dim=1), torch.ones(2), atol=1e-4)
+
+
+def test_default_signature_is_the_normalised_average_and_max_of_the_maps():
+    model = build_feature_extractor(pretrained=False, device="cpu")  # the default components
+    frames = torch.randint(0, 255, (2, 3, 64, 64), dtype=torch.uint8)
+    maps = model[0](preprocess(frames, 224))
+    average, maximum = maps.mean(dim=(2, 3)), maps.amax(dim=(2, 3))
+    expected = torch.cat([F.normalize(average, dim=-1), F.normalize(maximum, dim=-1)], dim=1)
+    assert torch.allclose(extract_features(model, frames), expected, atol=1e-5)

@@ -72,7 +72,13 @@ def test_maps_of_the_torchvision_families(model_name, channels, side):
     frames = torch.randint(0, 255, (2, 3, 48, 64), dtype=torch.uint8)
     maps = backbone(preprocess(frames, backbone.input_size, backbone.mean, backbone.std))
     assert maps.shape == (2, channels, side, side)
-    model = build_feature_extractor(pretrained=False, device="cpu", backbone=model_name)
+    model = build_feature_extractor(
+        pretrained=False,
+        device="cpu",
+        backbone=model_name,
+        aggregation="avgpool",
+        normalisation="none",
+    )
     assert extract_features(model, frames).shape == (2, channels)  # frames resized to its size
 
 
@@ -129,7 +135,9 @@ def test_dinov2_is_loaded_through_torch_hub_and_gives_a_map_of_patch_tokens(monk
         return FakeDinoV2()
 
     monkeypatch.setattr(torch.hub, "load", fake_hub_load)
-    model = build_feature_extractor(pretrained=False, device="cpu", backbone=DINOV2)
+    model = build_feature_extractor(
+        pretrained=False, device="cpu", backbone=DINOV2, aggregation="avgpool", normalisation="none"
+    )
     assert calls == [
         ("facebookresearch/dinov2", "dinov2_vits14", {"pretrained": False, "trust_repo": True})
     ]

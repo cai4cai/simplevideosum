@@ -67,4 +67,4 @@ def test_missing_file(tmp_path):
 def test_frames_feed_feature_extractor(reader):
     model = build_feature_extractor(pretrained=False, device="cpu")
     feats = extract_features(model, reader.read([0, 500, 1000, 1500]))
-    assert feats.shape == (4, 960)
+    assert feats.shape == (4, 2 * 960)  # average and max pooling of the 960 channels

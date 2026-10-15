@@ -5,7 +5,9 @@ import torch
 from simplevideosum.algorithms import (
     ALGORITHMS,
     CLUSTERINGS,
+    DEFAULT_ALGORITHM,
     DEFAULT_CLUSTERING,
+    Algorithm,
     resolve,
     select_kmedoids,
     select_optimal_segments,
@@ -44,10 +46,22 @@ def test_registry_contains_time():
     assert not ALGORITHMS["time"].uses_signatures
     assert ALGORITHMS["videosum_inception"].uses_signatures
 
-    default = ALGORITHMS["videosum_inception"]
+
+def test_default_algorithm():
+    assert DEFAULT_ALGORITHM == "default"
+    default = ALGORITHMS[DEFAULT_ALGORITHM]
+    assert default == Algorithm()  # the defaults of the components
+    assert default.uses_signatures
     assert (default.backbone, default.aggregation, default.normalisation, default.distance) == (
-        "mobilenet", "avgpool", "none", "l2sq")  # fmt: skip
-    assert default.clustering == DEFAULT_CLUSTERING
+        "mobilenet", "avgcatmaxpool", "l2", "l2sq")  # fmt: skip
+    assert default.clustering == DEFAULT_CLUSTERING == "fisher"
+
+
+def test_videosum_inception_preset():
+    preset = ALGORITHMS["videosum_inception"]
+    assert (preset.backbone, preset.aggregation, preset.normalisation, preset.distance) == (
+        "inceptionv3", "avgpool", "none", "l2sq")  # fmt: skip
+    assert preset.clustering == "kmedoids"
 
 
 def test_videosum_scda_preset():
@@ -57,7 +71,7 @@ def test_videosum_scda_preset():
         "none",
         "cosine",
     )
-    assert (preset.backbone, preset.clustering) == ("mobilenet", "kmedoids")
+    assert (preset.backbone, preset.clustering) == ("inceptionv3", "kmedoids")
     assert "scda" not in ALGORITHMS and "inception" not in ALGORITHMS
 
 
@@ -107,12 +121,13 @@ def test_clustering_registry():
     assert CLUSTERINGS["kmedoids"].select is select_kmedoids
     assert CLUSTERINGS["dissection"].select is select_segments
     assert CLUSTERINGS["fisher"].select is select_optimal_segments
-    assert DEFAULT_CLUSTERING == "kmedoids"
+    assert DEFAULT_CLUSTERING == "fisher"
 
 
-def test_resolve_picks_the_default_clustering_for_signature_algorithms():
-    algorithm, clustering = resolve("videosum_inception", None, 12)
-    assert algorithm.uses_signatures and clustering is CLUSTERINGS["kmedoids"]
+def test_resolve_picks_the_clustering_of_the_algorithm_for_signature_algorithms():
+    algorithm, clustering = resolve(DEFAULT_ALGORITHM, None, 12)  # any number of frames
+    assert algorithm.uses_signatures and clustering is CLUSTERINGS["fisher"]
+    assert resolve("videosum_inception", None, 12)[1] is CLUSTERINGS["kmedoids"]
     assert resolve("videosum_inception", "dissection", 16)[1] is CLUSTERINGS["dissection"]
 
 

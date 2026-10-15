@@ -31,20 +31,22 @@ Frame selection is made of explicit components, like in the original package but
 3. **normalisation** (`--normalisation`): applied to each pooled descriptor before they are
    concatenated into the frame signature: `none` or `l2`.
 4. **distance** (`--distance`): between signatures: `l2sq` (squared L2) or `cosine`.
-5. **clustering** (`-c/--clustering`): how signatures are grouped into key frames: `kmedoids`
-   (default, as in videosum), `dissection` (temporally contiguous segments by greedy bisection) or
-   `fisher` (temporally contiguous segments of least total cost); both `l2sq` only.
+5. **clustering** (`-c/--clustering`): how signatures are grouped into key frames: `fisher`
+   (default: temporally contiguous segments of least total cost), `dissection` (temporally
+   contiguous segments by greedy bisection; `n` a power of 2) or `kmedoids` (as in videosum); the
+   first two are `l2sq` only.
 
 `-a/--algo` is an alias for a configuration of these components; any component flag overrides
-the one of the algorithm:
+the one of the algorithm. It is optional: `default` holds the default components.
 
-| `-a` | aggregation | normalisation | distance | clustering |
-| --- | --- | --- | --- | --- |
-| `time` | evenly spaced frames, never looks at the images (the components are ignored) | | | |
-| `videosum_inception` | `avgpool` | `none` | `l2sq` | `kmedoids` |
-| `videosum_scda` | `scda_fill` | `none` | `cosine` | `kmedoids` |
+| `-a` | backbone | aggregation | normalisation | distance | clustering |
+| --- | --- | --- | --- | --- | --- |
+| `default` | `mobilenet` | `avgcatmaxpool` | `l2` | `l2sq` | `fisher` |
+| `time` | evenly spaced frames, never looks at the images (the components are ignored) | | | | |
+| `videosum_inception` | `inceptionv3` | `avgpool` | `none` | `l2sq` | `kmedoids` |
+| `videosum_scda` | `inceptionv3` | `scda_fill` | `none` | `cosine` | `kmedoids` |
 
-All use the default `mobilenet` backbone unless `--backbone` says otherwise (the videosum package uses `inceptionv3`). `videosum_scda` follows the videosum package, which departs
+The two `videosum_*` algorithms reproduce the videosum package. `videosum_scda` follows the videosum package, which departs
 from Wei et al. (2017) in two ways: it fills the holes of the object mask, and it does not
 L2-normalise the pooled descriptors before the cosine distance. The paper's version is
 `-a videosum_scda --aggregation scda --normalisation l2`.
@@ -69,9 +71,8 @@ the authors' repository, so its first use also downloads their code from GitHub
 (`facebookresearch/dinov2`, main branch, trusted by the `trust_repo` flag) to `~/.cache/torch/hub`.
 The network runs on CUDA, then MPS, then CPU, whichever is available first.
 
-The tests use random weights and download nothing, except one end-to-end test that downloads the
-default weights (21 MB) into a temporary directory that goes with the test.
-`uv run pytest --pretrained-backbones` also checks a short list of backbones with their real
+The tests use random weights, except one end-to-end test that uses the default weights (21 MB,
+kept in the torch cache). `uv run pytest --pretrained-backbones` also checks a short list of backbones with their real
 weights (about 500 MB), one at a time in a temporary directory that is emptied after each, so the
 torch cache stays untouched; `--backbones-filter NAME` restricts it.
 
@@ -79,11 +80,11 @@ torch cache stays untouched; `--backbones-filter NAME` restricts it.
 
 ```bash
 uv run simplevideosum -i tests/data/video.mp4 -o storyboard.jpg \
+    -n 16 -x 1920 -y 1080 -f 2 -t 1
+uv run simplevideosum -i tests/data/video.mp4 -o storyboard.jpg \
     -n 16 -x 1920 -y 1080 -a time -t 1
 uv run simplevideosum -i tests/data/video.mp4 -o storyboard.jpg \
     -n 16 -x 1920 -y 1080 -a videosum_inception -f 2 -t 1
-uv run simplevideosum -i tests/data/video.mp4 -o storyboard.jpg \
-    -n 16 -x 1920 -y 1080 -a videosum_inception -c dissection -f 2 -t 1
 ```
 
 The first command writes a 1920x1112 image: a 4x4 grid of 16 frames filling 1920x1080, plus a 32 pixel
@@ -97,7 +98,7 @@ time segmentation bar. `python -m simplevideosum.run` is equivalent. Run
 | `-n`, `--nframes` | Number of frames in the collage. |
 | `-x`, `--width` | Width of the collage in pixels. |
 | `-y`, `--height` | Height of the collage in pixels (the time segmentation bar is added below it). |
-| `-a`, `--algo` | Alias for a configuration of the components (table above): `time`, `videosum_inception` or `videosum_scda`. |
+| `-a`, `--algo` | Alias for a configuration of the components (table above): `default`, `time`, `videosum_inception` or `videosum_scda`. Default: `default`. |
 | `--backbone`, `--aggregation`, `--normalisation`, `--distance` | Override the corresponding component of the algorithm. |
 | `-c`, `--clustering` | Clustering of the signatures: `kmedoids`, `dissection` (needs a power of 2 for `-n` and the `l2sq` distance) or `fisher` (`l2sq` distance, at most 10,000 sampled frames). Overrides the algorithm's. |
 | `-s`, `--time-smoothing` | In [0, 1]: blends the signature distances with the temporal distance between frames, 1 gives contiguous clusters. `kmedoids` only. Default: 0. |

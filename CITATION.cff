@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper of the videosum package it is inspired by."
+title: simplevideosum
+type: software
+authors:
+  - family-names: Vercauteren
+    given-names: Tom
+license: Apache-2.0
+preferred-citation:
+  type: article
+  title: "VideoSum: A Python Library for Surgical Video Summarization"
+  authors:
+    - family-names: Garcia-Peraza-Herrera
+      given-names: Luis C.
+    - family-names: Ourselin
+      given-names: Sebastien
+    - family-names: Vercauteren
+      given-names: Tom
+  journal: "arXiv preprint arXiv:2303.10173"
+  year: 2023
+  url: "https://arxiv.org/abs/2303.10173"

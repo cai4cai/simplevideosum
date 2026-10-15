@@ -1,7 +1,8 @@
 # simplevideosum
 
 A barebones video summarisation tool, inspired by
-[videosum](https://github.com/luiscarlosgph/videosum). Given a video, it produces a
+[videosum](https://github.com/luiscarlosgph/videosum) (Garcia-Peraza-Herrera et al., CRAS 2023,
+see [Citation](#citation)). Given a video, it produces a
 **single-image storyboard**: a collage of key frames, optionally with a colour bar underneath
 that shows which key frame stands for each moment of the video.
 
@@ -141,7 +142,7 @@ The input must be a single video file for now.
     so lower `-f` for long videos. The key frame is chosen as for `dissection`.
 
   The greedy bisection can only produce balanced hierarchies, so on the demo video it spends half
-  of the segments on the first 17 seconds. It is kept as an experiment, `kmedoids` is the baseline.
+  of the segments on the first 17 seconds. It is kept as an experiment, `fisher` is the default and `kmedoids` is the videosum clustering.
 - **`scda` aggregation**: Selective Convolutional Descriptor Aggregation (Wei et al., 2017) of the
   activations of the last convolutional block of the backbone (7x7x960 for the default one). The
   activations are summed over channels, the positions above the mean form a mask, and only its largest 8-connected component
@@ -169,3 +170,21 @@ The input must be a single video file for now.
 uv run pytest        # tests
 uv run ruff check .  # lint
 ```
+
+## Citation
+
+If you use this code in your research, please cite [the paper](https://arxiv.org/abs/2303.10173)
+of the videosum package that inspired it (a `CITATION.cff` file is also provided):
+
+```bibtex
+@article{GarciaPerazaHerrera2023,
+	author = {Luis C. Garcia-Peraza-Herrera and Sebastien Ourselin and Tom Vercauteren},
+	title = {VideoSum: A Python Library for Surgical Video Summarization},
+	journal = {arXiv preprint arXiv:2303.10173},
+	year = {2023}
+}
+```
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
